@@ -7,6 +7,7 @@ import connectDB from "./config/db.js";
 import Service from "./models/Service.js";
 import authRoutes from "./routes/authRoutes.js";
 import contactRoutes from "./routes/contactRoutes.js";
+import servicesRoutes from "./routes/servicesRoutes.js";
 import protect from "./middleware/authMiddleware.js";
 
 dotenv.config();
@@ -60,6 +61,10 @@ app.use("/api/auth", authRoutes);
 // ================= CONTACT ================= //
 
 app.use("/api/contact", contactRoutes);
+
+// ================= NEARBY SERVICES (OVERPASS PROXY) ================= //
+
+app.use("/api/services", servicesRoutes);
 
 // ================= NEARBY (DYNAMIC, DB-BACKED) ================= //
 

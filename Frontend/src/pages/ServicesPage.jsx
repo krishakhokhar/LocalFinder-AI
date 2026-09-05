@@ -3,22 +3,12 @@ import { useLocation } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import ServiceCard from "../components/ServiceCard";
 import MapComponent from "../components/Map";
+import { API_BASE_URL } from "../config/api";
 import {
   FaMapMarkerAlt, FaLocationArrow, FaSpinner,
   FaSearch, FaExclamationTriangle, FaRedo,
   FaCut, FaTools, FaBolt, FaUtensils, FaSpa, FaCar, FaStore
 } from "react-icons/fa";
-
-/* ─── Overpass tag per category ─── */
-const CATEGORY_TAGS = {
-  all:         '["name"]["amenity"~"hairdresser|restaurant|cafe|fast_food|hospital|pharmacy|bank|fuel"]',
-  salon:       '["amenity"~"hairdresser|beauty"]["name"]',
-  plumber:     '["craft"="plumber"]["name"]',
-  electrician: '["craft"="electrician"]["name"]',
-  restaurant:  '["amenity"~"restaurant|cafe|fast_food"]["name"]',
-  spa:         '["leisure"~"spa|fitness_centre"]["name"]',
-  car:         '["shop"~"car_repair|car"]["name"]',
-};
 
 const CATEGORIES = [
   { key: "all",         label: "All",         icon: <FaStore /> },
@@ -43,20 +33,17 @@ function haversine(lat1, lon1, lat2, lon2) {
 }
 
 async function fetchOverpass(lat, lng, catKey, radiusM = 3000) {
-  const tag = CATEGORY_TAGS[catKey] || CATEGORY_TAGS.all;
-  const query = `
-    [out:json][timeout:25];
-    (
-      node${tag}(around:${radiusM},${lat},${lng});
-      way${tag}(around:${radiusM},${lat},${lng});
-    );
-    out center 60;
-  `;
-  const res = await fetch("https://overpass-api.de/api/interpreter", {
-    method: "POST",
-    body: "data=" + encodeURIComponent(query),
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lng: String(lng),
+    category: catKey,
+    radius: String(radiusM),
   });
+  const res = await fetch(`${API_BASE_URL}/api/services/nearby?${params.toString()}`);
   const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || "Could not fetch nearby services");
+  }
   return (data.elements || [])
     .filter((el) => el.tags?.name)
     .map((el) => {

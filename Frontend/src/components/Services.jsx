@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import ServiceCard from "./ServiceCard";
+import { API_BASE_URL } from "../config/api";
 import {
   FaMapMarkerAlt, FaSpinner, FaLocationArrow, FaExclamationTriangle
 } from "react-icons/fa";
@@ -13,21 +14,17 @@ function getDistance(lat1, lon1, lat2, lon2) {
 }
 
 async function fetchOverpassServices(lat, lng) {
-  const query = `
-    [out:json][timeout:25];
-    (
-      node["amenity"~"hairdresser|restaurant|pharmacy|hospital|fuel"]["name"](around:2000,${lat},${lng});
-      node["craft"~"plumber|electrician"]["name"](around:2000,${lat},${lng});
-      node["shop"~"car_repair"]["name"](around:2000,${lat},${lng});
-      node["leisure"~"fitness_centre"]["name"](around:2000,${lat},${lng});
-    );
-    out center 15;
-  `;
-  const res = await fetch("https://overpass-api.de/api/interpreter", {
-    method: "POST",
-    body: "data=" + encodeURIComponent(query),
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lng: String(lng),
+    category: "all",
+    radius: "2000",
   });
+  const res = await fetch(`${API_BASE_URL}/api/services/nearby?${params.toString()}`);
   const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || "Could not fetch nearby services");
+  }
   return (data.elements || [])
     .filter((el) => el.tags?.name)
     .map((el) => ({
