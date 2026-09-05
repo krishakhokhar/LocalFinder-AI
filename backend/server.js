@@ -17,10 +17,21 @@ const app = express();
 
 // ================= CORS ================= //
 
-const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
+// Known-good origins that must always work, regardless of whether
+// CORS_ORIGIN is configured on the hosting platform. CORS_ORIGIN can
+// still be used to add further origins (e.g. a staging site) without
+// a code change, but it extends this list rather than replacing it.
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "https://local-finder-ai.vercel.app",
+];
+
+const envOrigins = (process.env.CORS_ORIGIN || "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+const allowedOrigins = [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...envOrigins])];
 
 app.use(
   cors({
