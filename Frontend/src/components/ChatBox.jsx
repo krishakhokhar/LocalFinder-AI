@@ -17,6 +17,19 @@ export default function Chatbox({ setSelectedPosition }) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  // Best-effort location so the AI can look up real nearby results.
+  // Resolves to null (rather than rejecting) if denied/unavailable, so
+  // chat still works without location - just without service lookups.
+  const getLocation = () =>
+    new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(null),
+        { timeout: 5000 }
+      );
+    });
+
   // 🔥 SEND MESSAGE
   const handleSend = async () => {
     if (!input.trim()) return;
@@ -28,12 +41,13 @@ export default function Chatbox({ setSelectedPosition }) {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/chat`, {
+      const location = await getLocation();
+      const res = await fetch(`${API_BASE_URL}/api/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message: input }),
+        body: JSON.stringify({ message: input, ...location }),
       });
 
       const data = await res.json();
@@ -67,7 +81,7 @@ export default function Chatbox({ setSelectedPosition }) {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-4 rounded-full shadow-xl hover:scale-110 transition z-[9999]"
+          className="fixed bottom-5 right-5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-4 rounded-full shadow-xl hover:scale-110 transition-transform duration-200 z-[9999]"
         >
           <FaRobot size={22} />
         </button>
@@ -75,30 +89,30 @@ export default function Chatbox({ setSelectedPosition }) {
 
       {/* 💬 Chatbox */}
       {open && (
-        <div className="fixed bottom-5 right-5 w-80 bg-white shadow-2xl rounded-3xl overflow-hidden z-[9999]">
-          
+        <div className="fixed bottom-5 right-5 left-5 sm:left-auto w-auto sm:w-80 bg-white shadow-2xl rounded-3xl overflow-hidden z-[9999] animate-fadeUp">
+
           {/* Header */}
-          <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-3 flex justify-between">
-            <div className="flex items-center gap-2">
+          <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-3 flex justify-between items-center">
+            <div className="flex items-center gap-2 font-semibold">
               <FaRobot /> AI Assistant
             </div>
             <FaTimes
               onClick={() => setOpen(false)}
-              className="cursor-pointer"
+              className="cursor-pointer hover:opacity-75 transition"
             />
           </div>
 
           {/* Messages */}
-          <div className="h-64 overflow-y-auto p-3 space-y-2 bg-gray-100">
+          <div className="h-64 overflow-y-auto p-3 space-y-2 bg-gray-50">
             {messages.map((msg, index) => (
               <div key={index}>
                 
                 {/* TEXT */}
                 <div
-                  className={`p-2 rounded-xl max-w-[70%] text-sm ${
+                  className={`p-2.5 rounded-2xl max-w-[80%] text-sm leading-snug shadow-sm ${
                     msg.sender === "user"
-                      ? "bg-blue-500 text-white ml-auto"
-                      : "bg-gray-300 text-black"
+                      ? "bg-gradient-to-r from-blue-500 to-indigo-600 text-white ml-auto rounded-br-sm"
+                      : "bg-white text-gray-800 rounded-bl-sm"
                   }`}
                 >
                   {msg.text}
@@ -106,15 +120,17 @@ export default function Chatbox({ setSelectedPosition }) {
 
                 {/* 🔥 SERVICES CARDS */}
                 {msg.services && msg.services.length > 0 && (
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-2 space-y-1.5">
                     {msg.services.map((s, i) => (
                       <div
                         key={i}
-                        className="bg-white p-2 rounded-lg shadow text-xs hover:shadow-md transition"
+                        className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-100 text-xs hover:shadow-md transition"
                       >
-                        <div className="font-semibold">{s.name}</div>
-                        <div>⭐ {s.rating}</div>
-                        <div>📍 {s.distance}</div>
+                        <div className="font-semibold text-gray-800">{s.name}</div>
+                        <div className="flex items-center gap-2 text-gray-500 mt-0.5">
+                          <span>⭐ {s.rating}</span>
+                          <span>📍 {s.distance}</span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -133,18 +149,19 @@ export default function Chatbox({ setSelectedPosition }) {
           </div>
 
           {/* Input */}
-          <div className="flex border-t">
+          <div className="flex border-t border-gray-100 bg-white">
             <input
               type="text"
               placeholder="Ask something..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
-              className="flex-1 p-2 outline-none text-sm"
+              className="flex-1 p-3 outline-none text-sm placeholder-gray-400"
             />
             <button
               onClick={handleSend}
-              className="bg-blue-500 text-white px-4 hover:bg-blue-600"
+              disabled={loading}
+              className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 font-semibold text-sm hover:opacity-90 transition disabled:opacity-50"
             >
               Send
             </button>
