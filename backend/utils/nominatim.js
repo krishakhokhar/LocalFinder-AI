@@ -41,12 +41,17 @@ function boundingBox(lat, lng, radiusM) {
 /**
  * Returns Overpass-"element"-shaped results (same {lat, lon, tags} shape
  * the frontend already knows how to render) so callers never need to
- * know which provider actually served the data. Returns [] rather than
- * throwing on any failure - this is already the fallback of last resort.
+ * know which provider actually served the data.
+ *
+ * Returns an array (possibly empty) on genuine success - including a
+ * real "no matches" - and `null` only when the request itself actually
+ * failed. This distinction matters: callers must be able to tell "we
+ * asked and there's really nothing here" apart from "we couldn't ask at
+ * all", since only the latter is an upstream failure.
  */
 export async function tryNominatim(category, radius, lat, lng) {
   const term = CATEGORY_SEARCH_TERMS[category];
-  if (!term) return []; // "all" has no single representative term - skip.
+  if (!term) return []; // "all" has no single representative term - skip, not a failure.
 
   const box = boundingBox(lat, lng, radius);
 
@@ -68,7 +73,7 @@ export async function tryNominatim(category, radius, lat, lng) {
       timeout: TIMEOUT_MS,
     });
 
-    if (!Array.isArray(res.data)) return [];
+    if (!Array.isArray(res.data)) return null;
 
     return res.data
       .filter((place) => place.lat && place.lon)
@@ -87,6 +92,6 @@ export async function tryNominatim(category, radius, lat, lng) {
       });
   } catch (err) {
     console.warn("[nominatim] fallback failed:", err.message);
-    return [];
+    return null;
   }
 }

@@ -3,7 +3,9 @@ import axios from "axios";
 // "all" is the union of every named category's tags so "All" surfaces
 // salons, plumbers, electricians, restaurants, spas and car services together.
 export const CATEGORY_TAGS = {
-  salon: '["amenity"~"hairdresser|beauty"]["name"]',
+  // Standard OSM tag for hair/beauty salons is shop=hairdresser|beauty,
+  // not amenity= - amenity=hairdresser is essentially unused in practice.
+  salon: '["shop"~"hairdresser|beauty"]["name"]',
   plumber: '["craft"="plumber"]["name"]',
   electrician: '["craft"="electrician"]["name"]',
   restaurant: '["amenity"~"restaurant|cafe|fast_food"]["name"]',
@@ -12,9 +14,9 @@ export const CATEGORY_TAGS = {
 };
 
 const ALL_TAG_GROUPS = [
-  '["amenity"~"hairdresser|restaurant|cafe|fast_food|hospital|pharmacy|bank|fuel"]["name"]',
+  '["amenity"~"restaurant|cafe|fast_food|hospital|pharmacy|bank|fuel"]["name"]',
+  '["shop"~"hairdresser|beauty|car_repair|car"]["name"]',
   '["craft"~"plumber|electrician"]["name"]',
-  '["shop"~"car_repair|car"]["name"]',
   '["leisure"~"spa|fitness_centre"]["name"]',
 ];
 
@@ -128,22 +130,33 @@ async function fetchFromMirror(url, query) {
 
 /**
  * Tries each Overpass mirror once, in sequence (never in parallel).
- * Returns null (not a throw) if every mirror fails, so callers can
- * fall through to another provider instead of treating this as fatal.
+ * Returns { elements: null, mirrorUsed: null } (not a throw) if every
+ * mirror fails, so callers can fall through to another provider instead
+ * of treating this as fatal.
+ *
+ * `preferredMirror`, when given, is tried first (the rest follow in
+ * their normal order as fallback). This matters for radius-expansion
+ * callers: once one mirror is known to be responding, reusing it for
+ * every subsequent radius attempt avoids re-scanning all 5 mirrors each
+ * time, which would otherwise multiply worst-case latency by the number
+ * of radius tiers.
  */
-export async function tryOverpass(category, radius, lat, lng) {
+export async function tryOverpass(category, radius, lat, lng, preferredMirror = null) {
   const query = buildQuery(category, radius, lat, lng);
-  const failures = [];
+  const orderedMirrors = preferredMirror
+    ? [preferredMirror, ...OVERPASS_MIRRORS.filter((url) => url !== preferredMirror)]
+    : OVERPASS_MIRRORS;
 
-  for (const url of OVERPASS_MIRRORS) {
+  const failures = [];
+  for (const url of orderedMirrors) {
     try {
       const data = await fetchFromMirror(url, query);
-      return data.elements;
+      return { elements: data.elements, mirrorUsed: url };
     } catch (err) {
       failures.push(`${url} -> ${err.message}`);
     }
   }
 
   console.warn("[overpass] all mirrors failed:\n  " + failures.join("\n  "));
-  return null;
+  return { elements: null, mirrorUsed: null };
 }

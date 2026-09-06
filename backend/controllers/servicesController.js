@@ -1,5 +1,5 @@
 import { VALID_CATEGORIES, MIN_RADIUS_M, MAX_RADIUS_M, DEFAULT_RADIUS_M } from "../utils/overpass.js";
-import { findNearbyPlaces } from "../utils/places.js";
+import { findNearbyPlacesExpanding } from "../utils/places.js";
 
 export const getNearbyServices = async (req, res) => {
   const lat = parseFloat(req.query.lat);
@@ -28,15 +28,25 @@ export const getNearbyServices = async (req, res) => {
     });
   }
 
-  // findNearbyPlaces never throws - a total upstream failure comes back
-  // as `degraded: true` with an empty list, not an exception, so this
-  // endpoint can always answer with 200 rather than breaking the page.
-  const { elements, provider, degraded, message } = await findNearbyPlaces({ lat, lng, category, radius });
+  // findNearbyPlacesExpanding never throws - a total upstream failure
+  // comes back as `degraded: true` with an empty list (surfaced as-is,
+  // never escalated further), so this endpoint can always answer with
+  // 200 rather than breaking the page. On a genuine empty result it
+  // automatically widens the search radius (radius -> 5km -> 10km ->
+  // 15km) before giving up, since the whole point of nearby search is
+  // to find the closest *available* service, not stop at a fixed radius.
+  const { elements, provider, degraded, message, radiusUsed } = await findNearbyPlacesExpanding({
+    lat,
+    lng,
+    category,
+    startRadius: radius,
+  });
 
   return res.status(200).json({
     success: true,
     elements,
     provider,
+    radiusUsed,
     ...(degraded ? { degraded: true, message } : {}),
   });
 };

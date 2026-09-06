@@ -131,7 +131,7 @@ export default function ServicesPage({ selectedPosition, onLocationChange }) {
       setServices(results);
       if (degradedMessage) setError(degradedMessage);
       else if (results.length === 0)
-        setError("No services found within 3 km. Try a different category.");
+        setError("No services found nearby, even after expanding the search radius. Try a different category.");
     } catch {
       setError("Could not fetch services. Check your internet connection.");
     } finally {
