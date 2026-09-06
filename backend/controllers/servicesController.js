@@ -1,10 +1,5 @@
-import {
-  VALID_CATEGORIES,
-  MIN_RADIUS_M,
-  MAX_RADIUS_M,
-  DEFAULT_RADIUS_M,
-  getNearbyElements,
-} from "../utils/overpass.js";
+import { VALID_CATEGORIES, MIN_RADIUS_M, MAX_RADIUS_M, DEFAULT_RADIUS_M } from "../utils/overpass.js";
+import { findNearbyPlaces } from "../utils/places.js";
 
 export const getNearbyServices = async (req, res) => {
   const lat = parseFloat(req.query.lat);
@@ -33,15 +28,15 @@ export const getNearbyServices = async (req, res) => {
     });
   }
 
-  try {
-    const elements = await getNearbyElements({ lat, lng, category, radius });
-    return res.status(200).json({ success: true, elements });
-  } catch (err) {
-    console.warn("[services/nearby] failed:", err.message);
-    return res.status(502).json({
-      success: false,
-      message: "Could not fetch nearby services from Overpass right now",
-      elements: [],
-    });
-  }
+  // findNearbyPlaces never throws - a total upstream failure comes back
+  // as `degraded: true` with an empty list, not an exception, so this
+  // endpoint can always answer with 200 rather than breaking the page.
+  const { elements, provider, degraded, message } = await findNearbyPlaces({ lat, lng, category, radius });
+
+  return res.status(200).json({
+    success: true,
+    elements,
+    provider,
+    ...(degraded ? { degraded: true, message } : {}),
+  });
 };

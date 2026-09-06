@@ -23,7 +23,7 @@ export const VALID_CATEGORIES = ["all", ...Object.keys(CATEGORY_TAGS)];
 // Multiple independently-operated public mirrors. The free Overpass API
 // is known to rate-limit or reject traffic from cloud/datacenter IP
 // ranges (which is exactly what a Render-hosted backend is), so a
-// single mirror is not reliable in production - we try several in turn.
+// single mirror - or even several - is not guaranteed reliable.
 const OVERPASS_MIRRORS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
@@ -32,15 +32,19 @@ const OVERPASS_MIRRORS = [
   "https://overpass.private.coffee/api/interpreter",
 ];
 
-const PER_MIRROR_TIMEOUT_MS = 7000;
+// Identifies this app to OSM infrastructure, as their usage policies
+// require/expect. A bare axios default User-Agent is one of the things
+// that gets automated traffic deprioritized or blocked outright.
+const APP_USER_AGENT = "LocalFinder-AI/1.0 (+https://github.com/krishakhokhar/LocalFinder-AI)";
+
+const PER_MIRROR_TIMEOUT_MS = 6000;
 export const MIN_RADIUS_M = 100;
 export const MAX_RADIUS_M = 20000;
 export const DEFAULT_RADIUS_M = 3000;
 
 // Short in-memory cache so repeated queries for the same area/category
-// (common when several users search nearby locations, or the AI chat
-// and the Services page query the same spot) don't all hit Overpass
-// again - this directly reduces the odds of tripping rate limits.
+// don't all hit Overpass again - this directly reduces the odds of
+// tripping rate limits, and also reduces load on the Nominatim fallback.
 const CACHE_TTL_MS = 3 * 60 * 1000;
 const cache = new Map();
 
@@ -49,6 +53,20 @@ function cacheKey(category, radius, lat, lng) {
   return `${category}:${radius}:${lat.toFixed(3)}:${lng.toFixed(3)}`;
 }
 
+export function getCached(category, radius, lat, lng) {
+  const entry = cache.get(cacheKey(category, radius, lat, lng));
+  if (entry && Date.now() - entry.time < CACHE_TTL_MS) return entry.elements;
+  return null;
+}
+
+export function setCached(category, radius, lat, lng, elements) {
+  cache.set(cacheKey(category, radius, lat, lng), { elements, time: Date.now() });
+}
+
+// Keep the query as small as the category actually requires - a single
+// tag filter and a capped result count, rather than pulling excess OSM
+// data. "out center 30" is enough for a "nearby results" list while
+// keeping the payload/processing Overpass has to do meaningfully smaller.
 function buildQuery(category, radius, lat, lng) {
   const clauses =
     category === "all"
@@ -62,11 +80,11 @@ function buildQuery(category, radius, lat, lng) {
         ];
 
   return `
-    [out:json][timeout:25];
+    [out:json][timeout:15];
     (
       ${clauses.join("\n      ")}
     );
-    out center 60;
+    out center 30;
   `;
 }
 
@@ -76,14 +94,20 @@ async function fetchFromMirror(url, query) {
 
   try {
     const res = await axios.post(url, "data=" + encodeURIComponent(query), {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": APP_USER_AGENT,
+        Accept: "application/json",
+      },
       signal: controller.signal,
       validateStatus: () => true,
     });
 
     if (res.status !== 200) {
-      // Covers 429 (rate limited), 502/503 (mirror overloaded), and any
-      // other non-success status - move on to the next mirror.
+      // Covers 429 (rate limited), 403 (blocked), 502/503 (overloaded),
+      // and anything else - move on to the next mirror, don't retry
+      // the same one (a mirror that just rejected us won't accept a
+      // second attempt moments later).
       throw new Error(`HTTP ${res.status}`);
     }
 
@@ -102,34 +126,24 @@ async function fetchFromMirror(url, query) {
   }
 }
 
-async function fetchOverpassWithFallback(query) {
+/**
+ * Tries each Overpass mirror once, in sequence (never in parallel).
+ * Returns null (not a throw) if every mirror fails, so callers can
+ * fall through to another provider instead of treating this as fatal.
+ */
+export async function tryOverpass(category, radius, lat, lng) {
+  const query = buildQuery(category, radius, lat, lng);
   const failures = [];
+
   for (const url of OVERPASS_MIRRORS) {
     try {
-      return await fetchFromMirror(url, query);
+      const data = await fetchFromMirror(url, query);
+      return data.elements;
     } catch (err) {
       failures.push(`${url} -> ${err.message}`);
     }
   }
+
   console.warn("[overpass] all mirrors failed:\n  " + failures.join("\n  "));
-  throw new Error("All Overpass mirrors failed");
-}
-
-/**
- * Fetches raw OSM elements near a point for a given category.
- * Throws if every mirror fails (caller decides the HTTP response for that case).
- */
-export async function getNearbyElements({ lat, lng, category, radius = DEFAULT_RADIUS_M }) {
-  const key = cacheKey(category, radius, lat, lng);
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.time < CACHE_TTL_MS) {
-    return cached.elements;
-  }
-
-  const query = buildQuery(category, radius, lat, lng);
-  const data = await fetchOverpassWithFallback(query);
-  const elements = data.elements || [];
-
-  cache.set(key, { elements, time: Date.now() });
-  return elements;
+  return null;
 }

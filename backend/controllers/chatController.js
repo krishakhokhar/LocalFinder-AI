@@ -1,5 +1,6 @@
 import axios from "axios";
-import { getNearbyElements, DEFAULT_RADIUS_M } from "../utils/overpass.js";
+import { DEFAULT_RADIUS_M } from "../utils/overpass.js";
+import { findNearbyPlaces } from "../utils/places.js";
 
 // Simple, transparent keyword-based intent detection - deliberately not
 // left to the LLM, so category detection can never invent a category
@@ -49,29 +50,32 @@ export const sendMessage = async (req, res) => {
       locationNote =
         "I can look for real nearby options once you share your location - please allow location access and try again.";
     } else if (category && hasLocation) {
-      try {
-        const elements = await getNearbyElements({ lat, lng, category, radius: DEFAULT_RADIUS_M });
-        services = elements
-          .filter((el) => el.tags?.name)
-          .map((el) => {
-            const slat = el.lat ?? el.center?.lat;
-            const slng = el.lon ?? el.center?.lon;
-            return {
-              name: el.tags.name,
-              rating: (3.5 + Math.random() * 1.5).toFixed(1),
-              distance: haversine(lat, lng, slat, slng).toFixed(2) + " km",
-              position: [slat, slng],
-            };
-          })
-          .sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance))
-          .slice(0, 5);
+      const { elements, degraded, message: degradedMessage } = await findNearbyPlaces({
+        lat,
+        lng,
+        category,
+        radius: DEFAULT_RADIUS_M,
+      });
 
-        if (services.length === 0) {
-          locationNote = `I looked but couldn't find any real ${category} listings on OpenStreetMap near you right now.`;
-        }
-      } catch (err) {
-        console.warn("[chat] overpass lookup failed:", err.message);
-        locationNote = "I couldn't reach the map data service just now - please try again in a moment.";
+      services = elements
+        .filter((el) => el.tags?.name)
+        .map((el) => {
+          const slat = el.lat ?? el.center?.lat;
+          const slng = el.lon ?? el.center?.lon;
+          return {
+            name: el.tags.name,
+            rating: (3.5 + Math.random() * 1.5).toFixed(1),
+            distance: haversine(lat, lng, slat, slng).toFixed(2) + " km",
+            position: [slat, slng],
+          };
+        })
+        .sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance))
+        .slice(0, 5);
+
+      if (degraded) {
+        locationNote = degradedMessage;
+      } else if (services.length === 0) {
+        locationNote = `I looked but couldn't find any real ${category} listings on OpenStreetMap near you right now.`;
       }
     }
 

@@ -25,7 +25,7 @@ async function fetchOverpassServices(lat, lng) {
   if (!res.ok || !data.success) {
     throw new Error(data.message || "Could not fetch nearby services");
   }
-  return (data.elements || [])
+  const results = (data.elements || [])
     .filter((el) => el.tags?.name)
     .map((el) => ({
       name: el.tags.name,
@@ -39,6 +39,8 @@ async function fetchOverpassServices(lat, lng) {
     }))
     .sort((a, b) => a.distNum - b.distNum)
     .slice(0, 6);
+
+  return { results, degradedMessage: data.degraded ? data.message : null };
 }
 
 export default function Services() {
@@ -58,8 +60,9 @@ export default function Services() {
         const lng = pos.coords.longitude;
         setLocation({ lat, lng });
         try {
-          const results = await fetchOverpassServices(lat, lng);
+          const { results, degradedMessage } = await fetchOverpassServices(lat, lng);
           setServices(results);
+          if (degradedMessage) setError(degradedMessage);
         } catch {
           setError("Could not load services. Check connection.");
         } finally {

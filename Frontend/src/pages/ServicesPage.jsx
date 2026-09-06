@@ -44,7 +44,7 @@ async function fetchOverpass(lat, lng, catKey, radiusM = 3000) {
   if (!res.ok || !data.success) {
     throw new Error(data.message || "Could not fetch nearby services");
   }
-  return (data.elements || [])
+  const results = (data.elements || [])
     .filter((el) => el.tags?.name)
     .map((el) => {
       const slat = el.lat ?? el.center?.lat;
@@ -69,6 +69,8 @@ async function fetchOverpass(lat, lng, catKey, radiusM = 3000) {
       };
     })
     .sort((a, b) => a.distNum - b.distNum);
+
+  return { results, degradedMessage: data.degraded ? data.message : null };
 }
 
 export default function ServicesPage({ selectedPosition }) {
@@ -94,9 +96,10 @@ export default function ServicesPage({ selectedPosition }) {
     setError("");
     setServices([]);
     try {
-      const results = await fetchOverpass(lat, lng, cat);
+      const { results, degradedMessage } = await fetchOverpass(lat, lng, cat);
       setServices(results);
-      if (results.length === 0)
+      if (degradedMessage) setError(degradedMessage);
+      else if (results.length === 0)
         setError("No services found within 3 km. Try a different category.");
     } catch {
       setError("Could not fetch services. Check your internet connection.");
