@@ -76,7 +76,7 @@ async function fetchOverpass(lat, lng, catKey, radiusM = 3000) {
   return { results, degradedMessage: data.degraded ? data.message : null };
 }
 
-export default function ServicesPage({ selectedPosition }) {
+export default function ServicesPage({ selectedPosition, onLocationChange }) {
   const routerLocation = useLocation();
   const params = new URLSearchParams(routerLocation.search);
   const typeFromURL = params.get("type") || "all";
@@ -150,6 +150,7 @@ export default function ServicesPage({ selectedPosition }) {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         setUserLocation({ lat, lng });
+        onLocationChange?.({ lat, lng });
         setMapCenter([lat, lng]);
         setLocationGranted(true);
         setLocLoading(false);
@@ -161,7 +162,7 @@ export default function ServicesPage({ selectedPosition }) {
       },
       { enableHighAccuracy: true }
     );
-  }, [activeCategory, fetchServices]);
+  }, [activeCategory, fetchServices, onLocationChange]);
 
   /* auto-request on mount */
   useEffect(() => { getLocation(); }, []);

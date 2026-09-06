@@ -14,6 +14,9 @@ import Footer from "./components/Footer";
 function App() {
   // 🔥 GLOBAL STATE (map ke liye)
   const [selectedPosition, setSelectedPosition] = useState(null);
+  // Shared with the AI Assistant so it can reuse the same location the
+  // Services page already detected, instead of asking for it again.
+  const [userLocation, setUserLocation] = useState(null);
 
   return (
     <BrowserRouter>
@@ -25,7 +28,7 @@ function App() {
         <Route
           path="/services"
           element={
-            <ServicesPage selectedPosition={selectedPosition} />
+            <ServicesPage selectedPosition={selectedPosition} onLocationChange={setUserLocation} />
           }
         />
 
@@ -35,7 +38,7 @@ function App() {
       </Routes>
 
       {/* 🤖 Chatbot (map control karega) */}
-      <Chatbot setSelectedPosition={setSelectedPosition} />
+      <Chatbot setSelectedPosition={setSelectedPosition} userLocation={userLocation} />
       <Footer />
       <ToastContainer position="top-right" autoClose={3000} />
     </BrowserRouter>

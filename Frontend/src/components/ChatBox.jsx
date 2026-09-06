@@ -2,7 +2,7 @@
 import { FaRobot, FaTimes } from "react-icons/fa";
 import { API_BASE_URL } from "../config/api";
 
-export default function Chatbox({ setSelectedPosition }) {
+export default function Chatbox({ setSelectedPosition, userLocation }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
     { text: "Hi! I am your AI assistant 🤖", sender: "bot" },
@@ -17,18 +17,21 @@ export default function Chatbox({ setSelectedPosition }) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  // Best-effort location so the AI can look up real nearby results.
-  // Resolves to null (rather than rejecting) if denied/unavailable, so
-  // chat still works without location - just without service lookups.
-  const getLocation = () =>
-    new Promise((resolve) => {
+  // Prefer the location the Services page already detected (shared via
+  // App.jsx) so the assistant never has to ask for it again. Only falls
+  // back to a fresh browser request if the user opens chat without
+  // having visited Services first.
+  const getLocation = () => {
+    if (userLocation) return Promise.resolve(userLocation);
+    return new Promise((resolve) => {
       if (!navigator.geolocation) return resolve(null);
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
         () => resolve(null),
-        { timeout: 5000 }
+        { timeout: 8000, maximumAge: 5 * 60 * 1000 }
       );
     });
+  };
 
   // 🔥 SEND MESSAGE
   const handleSend = async () => {
@@ -92,9 +95,12 @@ export default function Chatbox({ setSelectedPosition }) {
         <div className="fixed bottom-5 right-5 left-5 sm:left-auto w-auto sm:w-80 bg-white shadow-2xl rounded-3xl overflow-hidden z-[9999] animate-fadeUp">
 
           {/* Header */}
-          <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-3 flex justify-between items-center">
-            <div className="flex items-center gap-2 font-semibold">
-              <FaRobot /> AI Assistant
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-3.5 flex justify-between items-center">
+            <div className="flex items-center gap-2.5 font-semibold">
+              <div className="w-7 h-7 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                <FaRobot size={14} />
+              </div>
+              AI Assistant
             </div>
             <FaTimes
               onClick={() => setOpen(false)}

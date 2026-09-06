@@ -34,12 +34,15 @@ export default function Navbar() {
       <div className="max-w-6xl mx-auto flex justify-between items-center">
 
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
-            <FaMapMarkerAlt className="text-white text-sm" />
+        <Link to="/" className="flex items-center gap-2.5">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-blue-500/30 flex-shrink-0">
+            <FaMapMarkerAlt className="text-white text-base sm:text-lg" />
           </div>
-          <h1 className="text-lg font-extrabold text-gray-800">
-            Local<span className="text-blue-500">Finder</span>
+          <h1 className="text-lg sm:text-xl font-extrabold text-gray-800 tracking-tight">
+            Local
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
+              Finder
+            </span>
           </h1>
         </Link>
 

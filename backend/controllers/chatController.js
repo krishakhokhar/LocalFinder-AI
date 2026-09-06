@@ -4,12 +4,13 @@ import { findNearbyPlaces } from "../utils/places.js";
 
 // Simple, transparent keyword-based intent detection - deliberately not
 // left to the LLM, so category detection can never invent a category
-// (or a business) that wasn't actually asked for.
+// (or a business) that wasn't actually asked for. Includes common
+// Hindi/Hinglish terms since users write in mixed language.
 const CATEGORY_KEYWORDS = {
-  salon: ["salon", "haircut", "hairdresser", "beauty"],
+  salon: ["salon", "haircut", "hairdresser", "beauty", "parlour", "salon hai"],
   plumber: ["plumber", "plumbing", "leak", "pipe"],
   electrician: ["electrician", "electrical", "wiring"],
-  restaurant: ["restaurant", "food", "eat", "cafe", "dinner", "lunch"],
+  restaurant: ["restaurant", "restro", "resto", "food", "eat", "cafe", "dinner", "lunch", "khana", "hotel"],
   spa: ["spa", "gym", "fitness", "workout"],
   car: ["car service", "mechanic", "garage", "car repair"],
 };
@@ -31,6 +32,47 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Builds the rules the model must follow, grounded with whatever real
+// data is actually available for this request. The model is given the
+// real results by name/distance/rating so it CAN reference them
+// naturally in conversation, but is explicitly forbidden from ever
+// mentioning a business outside this exact list.
+function buildSystemPrompt({ hasLocation, lat, lng, category, services, degraded, degradedMessage }) {
+  let prompt =
+    "You are the LocalFinder AI assistant, a helpful guide for finding real local services " +
+    "(salons, plumbers, electricians, restaurants, gyms/spas, car services) through the LocalFinder app.\n\n" +
+    "STRICT RULES:\n" +
+    "1. The application may already know the user's current GPS location (given below). " +
+    "If a current location is given, you already know where the user is - NEVER ask them for their city, pincode, address, or location. Doing so is a mistake.\n" +
+    "2. Only mention specific business names, ratings, or distances that appear in the \"REAL NEARBY RESULTS\" list below, if one is given. Never invent, guess, or make up a business that is not in that exact list.\n" +
+    "3. If a REAL NEARBY RESULTS list is given but empty, say clearly and briefly that no matching nearby service was found right now - do not make one up.\n" +
+    "4. If no current location is available at all (see below), then and only then explain that you need location access to show real nearby results.\n" +
+    "5. Reply naturally and conversationally, concisely, in the same language/style the user wrote in (Hindi, Hinglish, or English).\n\n";
+
+  prompt += hasLocation
+    ? `Current location: known (latitude ${lat}, longitude ${lng}). Do not ask for it.\n`
+    : "Current location: NOT available. Location permission has not been granted.\n";
+
+  if (category) {
+    prompt += `Detected request category: ${category}.\n`;
+  }
+
+  if (hasLocation && category) {
+    if (degraded) {
+      prompt += `Note: live map data could not be reached right now (temporary issue) - tell the user politely that results aren't available right now and to try again shortly. Do not invent results.\n`;
+    } else if (services.length > 0) {
+      prompt +=
+        `REAL NEARBY RESULTS (only ever reference these, never any other business):\n` +
+        services.map((s) => `- ${s.name}, ${s.distance} away, rating ${s.rating}`).join("\n") +
+        "\n";
+    } else {
+      prompt += `REAL NEARBY RESULTS: none found for "${category}" near this location right now.\n`;
+    }
+  }
+
+  return prompt;
+}
+
 export const sendMessage = async (req, res) => {
   try {
     const { message, lat, lng } = req.body;
@@ -44,20 +86,15 @@ export const sendMessage = async (req, res) => {
     const hasLocation = typeof lat === "number" && typeof lng === "number";
 
     let services = [];
-    let locationNote = "";
+    let degraded = false;
+    let degradedMessage = "";
 
-    if (category && !hasLocation) {
-      locationNote =
-        "I can look for real nearby options once you share your location - please allow location access and try again.";
-    } else if (category && hasLocation) {
-      const { elements, degraded, message: degradedMessage } = await findNearbyPlaces({
-        lat,
-        lng,
-        category,
-        radius: DEFAULT_RADIUS_M,
-      });
+    if (category && hasLocation) {
+      const result = await findNearbyPlaces({ lat, lng, category, radius: DEFAULT_RADIUS_M });
+      degraded = result.degraded;
+      degradedMessage = result.message;
 
-      services = elements
+      services = result.elements
         .filter((el) => el.tags?.name)
         .map((el) => {
           const slat = el.lat ?? el.center?.lat;
@@ -71,26 +108,9 @@ export const sendMessage = async (req, res) => {
         })
         .sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance))
         .slice(0, 5);
-
-      if (degraded) {
-        locationNote = degradedMessage;
-      } else if (services.length === 0) {
-        locationNote = `I looked but couldn't find any real ${category} listings on OpenStreetMap near you right now.`;
-      }
     }
 
-    // The model only ever produces conversational framing text - it is
-    // explicitly told not to invent business names, addresses, or
-    // details itself; any real results are attached separately as
-    // structured data (`services`) which the frontend renders as cards.
-    const systemPrompt = category
-      ? `You are the LocalFinder AI assistant. The user is looking for a "${category}" service. ` +
-        `Real nearby results (if any) are fetched separately from OpenStreetMap and shown to the user as cards below your reply - ` +
-        `do NOT invent, name, or describe any specific business yourself. Just reply briefly and naturally, ` +
-        (services.length > 0
-          ? `letting them know you found some real options nearby.`
-          : `and mention what "${locationNote}" conveys, in your own words, briefly.`)
-      : "You are the LocalFinder AI assistant, a helpful guide for finding local services (salons, plumbers, electricians, restaurants, gyms/spas, car services). Answer naturally and helpfully.";
+    const systemPrompt = buildSystemPrompt({ hasLocation, lat, lng, category, services, degraded, degradedMessage });
 
     const aiResponse = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
@@ -112,7 +132,7 @@ export const sendMessage = async (req, res) => {
 
     const reply =
       aiResponse.data?.choices?.[0]?.message?.content ||
-      (services.length > 0 ? "Here are some real options nearby." : locationNote || "How can I help you find a local service today?");
+      (services.length > 0 ? "Here are some real options nearby." : "How can I help you find a local service today?");
 
     return res.status(200).json({ success: true, reply, services });
   } catch (error) {
