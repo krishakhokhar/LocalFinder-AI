@@ -178,7 +178,7 @@ export default function ServicesPage({ selectedPosition, onLocationChange }) {
 
   return (
     /* ── Full viewport layout ── */
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+    <div className="services-page" style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
       <Navbar />
 
       {/* Header */}
@@ -244,10 +244,10 @@ export default function ServicesPage({ selectedPosition, onLocationChange }) {
       </div>
 
       {/* ── Main split: list | map ── */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+      <div className="services-split" style={{ display: "flex", flex: 1, overflow: "hidden" }}>
 
         {/* LEFT: scrollable list */}
-        <div style={{ width: "380px", minWidth: "320px", overflowY: "auto", background: "#f9fafb", borderRight: "1px solid #e5e7eb", padding: "12px" }}>
+        <div className="services-list" style={{ width: "380px", minWidth: "320px", overflowY: "auto", background: "#f9fafb", borderRight: "1px solid #e5e7eb", padding: "12px" }}>
 
           {/* Location prompt */}
           {!locationGranted && !locLoading && !error && (
@@ -336,8 +336,8 @@ export default function ServicesPage({ selectedPosition, onLocationChange }) {
           )}
         </div>
 
-        {/* RIGHT: Map — takes remaining space */}
-        <div style={{ flex: 1, position: "relative" }}>
+        {/* RIGHT: Map — takes remaining space (stacks below list on mobile/tablet) */}
+        <div className="services-map" style={{ flex: 1, position: "relative" }}>
           <MapComponent
             services={filteredServices}
             selectedPosition={mapCenter || (userLocation ? [userLocation.lat, userLocation.lng] : [23.0225, 72.5714])}
@@ -347,8 +347,24 @@ export default function ServicesPage({ selectedPosition, onLocationChange }) {
         </div>
       </div>
 
-      {/* spin keyframe */}
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      {/* spin keyframe + mobile/tablet layout: stack list above map instead of
+          squeezing the map into a narrow side column below 900px */}
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        @media (max-width: 900px) {
+          .services-page { height: auto !important; min-height: 100vh; overflow: visible !important; }
+          .services-split { flex-direction: column !important; overflow: visible !important; }
+          .services-list {
+            width: 100% !important;
+            min-width: 0 !important;
+            overflow-y: visible !important;
+            border-right: none !important;
+            border-bottom: 1px solid #e5e7eb;
+          }
+          .services-map { flex: none !important; width: 100%; height: 400px; min-height: 350px; max-height: 450px; }
+        }
+      `}</style>
     </div>
   );
 }
