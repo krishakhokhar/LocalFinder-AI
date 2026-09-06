@@ -80,6 +80,10 @@ export default function Favorites() {
                 phone={fav.phone}
                 address={fav.address}
                 opening_hours={fav.opening_hours}
+                lat={fav.lat}
+                lng={fav.lng}
+                userLat={userLocation?.lat}
+                userLng={userLocation?.lng}
                 onRemoveFavorite={() => removeFavorite(fav._id)}
               />
             ))}

@@ -1,6 +1,6 @@
 import {
   FaStar, FaPhone, FaMapMarkerAlt, FaCut, FaTools, FaBolt,
-  FaUtensils, FaSpa, FaCar, FaStore, FaGlobe, FaClock, FaDirections, FaTrashAlt
+  FaUtensils, FaSpa, FaDumbbell, FaCar, FaStore, FaGlobe, FaClock, FaDirections, FaTrashAlt
 } from "react-icons/fa";
 
 const TYPE_CONFIG = {
@@ -12,7 +12,7 @@ const TYPE_CONFIG = {
   cafe:         { icon: <FaUtensils />,color: "bg-orange-100 text-orange-600",bar: "#f97316" },
   fast_food:    { icon: <FaUtensils />,color: "bg-orange-100 text-orange-600",bar: "#f97316" },
   spa:          { icon: <FaSpa />,     color: "bg-purple-100 text-purple-600",bar: "#a855f7" },
-  fitness_centre:{ icon: <FaSpa />,   color: "bg-purple-100 text-purple-600",bar: "#a855f7" },
+  fitness_centre:{ icon: <FaDumbbell />, color: "bg-purple-100 text-purple-600", bar: "#a855f7" },
   car:          { icon: <FaCar />,     color: "bg-green-100 text-green-600",  bar: "#22c55e" },
   car_repair:   { icon: <FaCar />,     color: "bg-green-100 text-green-600",  bar: "#22c55e" },
 };
@@ -23,13 +23,26 @@ function getConfig(type) {
 
 export default function ServiceCard({
   title, type, rating, distance, phone, address, opening_hours, website,
+  lat, lng, userLat, userLng,
   isFavorite, onToggleFavorite, onRemoveFavorite,
 }) {
   const cfg = getConfig(type);
   const typeLabel = type ? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Service";
 
-  const openGoogleMaps = () => {
-    window.open(`https://www.google.com/maps/search/${encodeURIComponent(title)}`, "_blank");
+  // Directions must point at this service's own exact coordinates - a
+  // name-only Google Maps search can resolve to the wrong branch/location
+  // for common business names, sometimes kilometers away. Falls back to a
+  // name search only in the rare case no coordinates were provided at all.
+  const openDirections = () => {
+    if (typeof lat !== "number" || typeof lng !== "number") {
+      window.open(`https://www.google.com/maps/search/${encodeURIComponent(title)}`, "_blank");
+      return;
+    }
+    const params = new URLSearchParams({ api: "1", destination: `${lat},${lng}` });
+    if (typeof userLat === "number" && typeof userLng === "number") {
+      params.set("origin", `${userLat},${userLng}`);
+    }
+    window.open(`https://www.google.com/maps/dir/?${params.toString()}`, "_blank");
   };
 
   return (
@@ -117,7 +130,7 @@ export default function ServiceCard({
           )}
 
           <button
-            onClick={openGoogleMaps}
+            onClick={openDirections}
             className="flex-1 flex items-center justify-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-xl text-xs font-semibold transition"
           >
             <FaDirections size={10} /> Directions

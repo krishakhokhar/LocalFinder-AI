@@ -169,6 +169,10 @@ export default function Services() {
                 distance={s.distance}
                 phone={s.phone}
                 address={s.address}
+                lat={s.position[0]}
+                lng={s.position[1]}
+                userLat={location?.lat}
+                userLng={location?.lng}
                 isFavorite={favoriteByPlaceId.has(s.placeId)}
                 onToggleFavorite={() => handleToggleFavorite(s)}
               />

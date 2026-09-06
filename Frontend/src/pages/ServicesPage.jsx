@@ -55,10 +55,11 @@ async function fetchOverpass(lat, lng, catKey, radiusM = 3000) {
       return {
         placeId: `${el.tags.name}::${slat.toFixed(5)}::${slng.toFixed(5)}`,
         name: el.tags.name,
-        type:
-          catKey !== "all"
-            ? catKey
-            : el.tags.amenity || el.tags.craft || el.tags.shop || el.tags.leisure || "service",
+        // Always show the business's real OSM type (e.g. "fitness_centre")
+        // rather than the active filter's category key - the "Spa/Gym"
+        // filter groups both spa and fitness_centre listings together, but
+        // a gym should still be labeled/iconed as a gym, not forced to "spa".
+        type: el.tags.amenity || el.tags.craft || el.tags.shop || el.tags.leisure || catKey || "service",
         phone: el.tags.phone || el.tags["contact:phone"] || null,
         address: el.tags["addr:street"]
           ? `${el.tags["addr:street"]}${el.tags["addr:housenumber"] ? " " + el.tags["addr:housenumber"] : ""}`
@@ -317,6 +318,10 @@ export default function ServicesPage({ selectedPosition, onLocationChange }) {
                 address={svc.address}
                 opening_hours={svc.opening_hours}
                 website={svc.website}
+                lat={svc.position[0]}
+                lng={svc.position[1]}
+                userLat={userLocation?.lat}
+                userLng={userLocation?.lng}
                 isFavorite={favoriteByPlaceId.has(svc.placeId)}
                 onToggleFavorite={() => handleToggleFavorite(svc)}
               />
