@@ -7,6 +7,7 @@ import authRoutes from "./routes/authRoutes.js";
 import contactRoutes from "./routes/contactRoutes.js";
 import servicesRoutes from "./routes/servicesRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
+import favoritesRoutes from "./routes/favoritesRoutes.js";
 
 dotenv.config();
 connectDB();
@@ -65,6 +66,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/services", servicesRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/favorites", favoritesRoutes);
 
 // ================= HEALTH CHECK ================= //
 

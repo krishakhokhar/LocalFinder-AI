@@ -4,6 +4,8 @@ import Navbar from "../components/Navbar";
 import ServiceCard from "../components/ServiceCard";
 import MapComponent from "../components/Map";
 import { API_BASE_URL } from "../config/api";
+import { useFavorites } from "../hooks/useFavorites";
+import { toast } from "react-toastify";
 import {
   FaMapMarkerAlt, FaLocationArrow, FaSpinner,
   FaSearch, FaExclamationTriangle, FaRedo,
@@ -51,6 +53,7 @@ async function fetchOverpass(lat, lng, catKey, radiusM = 3000) {
       const slng = el.lon ?? el.center?.lon;
       const dist = haversine(lat, lng, slat, slng);
       return {
+        placeId: `${el.tags.name}::${slat.toFixed(5)}::${slng.toFixed(5)}`,
         name: el.tags.name,
         type:
           catKey !== "all"
@@ -89,6 +92,34 @@ export default function ServicesPage({ selectedPosition }) {
   const [mapCenter, setMapCenter] = useState(selectedPosition || null);
   const [locationGranted, setLocationGranted] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
+
+  const { isLoggedIn, favoriteByPlaceId, addFavorite, removeFavorite } = useFavorites();
+
+  const handleToggleFavorite = useCallback(
+    (svc) => {
+      if (!isLoggedIn) {
+        toast.info("Please login to save favorites ❤️");
+        return;
+      }
+      const existing = favoriteByPlaceId.get(svc.placeId);
+      if (existing) {
+        removeFavorite(existing._id);
+      } else {
+        addFavorite({
+          placeId: svc.placeId,
+          name: svc.name,
+          category: svc.type,
+          lat: svc.position[0],
+          lng: svc.position[1],
+          address: svc.address,
+          phone: svc.phone,
+          rating: svc.rating,
+          opening_hours: svc.opening_hours,
+        });
+      }
+    },
+    [isLoggedIn, favoriteByPlaceId, addFavorite, removeFavorite]
+  );
 
   /* ── fetch Overpass results ── */
   const fetchServices = useCallback(async (lat, lng, cat) => {
@@ -285,6 +316,8 @@ export default function ServicesPage({ selectedPosition }) {
                 address={svc.address}
                 opening_hours={svc.opening_hours}
                 website={svc.website}
+                isFavorite={favoriteByPlaceId.has(svc.placeId)}
+                onToggleFavorite={() => handleToggleFavorite(svc)}
               />
             </div>
           ))}

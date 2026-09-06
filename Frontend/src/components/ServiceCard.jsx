@@ -1,6 +1,6 @@
 import {
   FaStar, FaPhone, FaMapMarkerAlt, FaCut, FaTools, FaBolt,
-  FaUtensils, FaSpa, FaCar, FaStore, FaGlobe, FaClock, FaDirections
+  FaUtensils, FaSpa, FaCar, FaStore, FaGlobe, FaClock, FaDirections, FaTrashAlt
 } from "react-icons/fa";
 
 const TYPE_CONFIG = {
@@ -21,7 +21,10 @@ function getConfig(type) {
   return TYPE_CONFIG[type] || { icon: <FaStore />, color: "bg-gray-100 text-gray-600", bar: "#6366f1" };
 }
 
-export default function ServiceCard({ title, type, rating, distance, phone, address, opening_hours, website }) {
+export default function ServiceCard({
+  title, type, rating, distance, phone, address, opening_hours, website,
+  isFavorite, onToggleFavorite, onRemoveFavorite,
+}) {
   const cfg = getConfig(type);
   const typeLabel = type ? type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Service";
 
@@ -30,13 +33,26 @@ export default function ServiceCard({ title, type, rating, distance, phone, addr
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm hover:shadow-md border border-gray-100 overflow-hidden transition-all duration-200 group">
+    <div className="bg-white rounded-2xl shadow-sm hover:shadow-md border border-gray-100 overflow-hidden transition-all duration-200 group relative">
       {/* Colored top bar */}
       <div style={{ height: "3px", background: cfg.bar }} />
 
+      {onToggleFavorite && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite();
+          }}
+          title={isFavorite ? "Remove from favorites" : "Save to favorites"}
+          className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-white/90 shadow-sm hover:scale-110 transition text-base z-10"
+        >
+          {isFavorite ? "❤️" : "🤍"}
+        </button>
+      )}
+
       <div className="p-4">
         {/* Header */}
-        <div className="flex items-start gap-3 mb-3">
+        <div className="flex items-start gap-3 mb-3 pr-8">
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-sm ${cfg.color}`}>
             {cfg.icon}
           </div>
@@ -54,11 +70,15 @@ export default function ServiceCard({ title, type, rating, distance, phone, addr
             <FaStar className="text-yellow-400" />
             <span className="font-semibold text-gray-700">{rating}</span>
           </span>
-          <span className="text-gray-300">·</span>
-          <span className="flex items-center gap-1">
-            <FaMapMarkerAlt className="text-blue-400" />
-            {distance}
-          </span>
+          {distance && (
+            <>
+              <span className="text-gray-300">·</span>
+              <span className="flex items-center gap-1">
+                <FaMapMarkerAlt className="text-blue-400" />
+                {distance}
+              </span>
+            </>
+          )}
           {opening_hours && (
             <>
               <span className="text-gray-300">·</span>
@@ -114,6 +134,15 @@ export default function ServiceCard({ title, type, rating, distance, phone, addr
             </a>
           )}
         </div>
+
+        {onRemoveFavorite && (
+          <button
+            onClick={onRemoveFavorite}
+            className="w-full mt-2 flex items-center justify-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-500 py-2 rounded-xl text-xs font-semibold transition"
+          >
+            <FaTrashAlt size={10} /> Remove Favorite
+          </button>
+        )}
       </div>
     </div>
   );

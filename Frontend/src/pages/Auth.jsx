@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { FaUser, FaEnvelope, FaLock, FaEye, FaEyeSlash } from "react-icons/fa";
-import { ToastContainer, toast } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom"; // ✅ ADD
 import { API_BASE_URL } from "../config/api";
 
@@ -10,10 +9,12 @@ export default function Auth() {
 
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -22,7 +23,7 @@ export default function Auth() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!email || !password || (!isLogin && !name)) {
+    if (!email || !password || (!isLogin && (!name || !confirmPassword))) {
       return toast.error("All fields are required ❌");
     }
 
@@ -32,6 +33,10 @@ export default function Auth() {
 
     if (!passwordRegex.test(password)) {
       return toast.error("Password must be 6+ chars with letter & number ❌");
+    }
+
+    if (!isLogin && password !== confirmPassword) {
+      return toast.error("Passwords do not match ❌");
     }
 
     setLoading(true);
@@ -67,6 +72,7 @@ export default function Auth() {
         setName("");
         setEmail("");
         setPassword("");
+        setConfirmPassword("");
 
         // 🔥 ONLY THIS ADDED
         if (isLogin) {
@@ -93,11 +99,9 @@ export default function Auth() {
           "url('https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b')",
       }}
     >
-      <ToastContainer />
-
       <div className="absolute inset-0 bg-black/60"></div>
 
-      <div className="relative z-10 w-full max-w-sm sm:max-w-md bg-white/10 backdrop-blur-md p-6 sm:p-8 rounded-2xl shadow-2xl text-white">
+      <div className="relative z-10 w-full max-w-sm sm:max-w-md bg-white/10 backdrop-blur-md p-6 sm:p-8 rounded-2xl shadow-2xl text-white animate-fadeUp">
         <h1 className="text-2xl sm:text-3xl font-bold text-center mb-6">
           {isLogin ? "Login" : "Register"}
         </h1>
@@ -145,6 +149,27 @@ export default function Auth() {
               {showPassword ? <FaEye /> : <FaEyeSlash />}
             </span>
           </div>
+
+          {!isLogin && (
+            <div className="flex items-center bg-white/20 p-3 rounded-lg relative">
+              <FaLock className="mr-2" />
+
+              <input
+                type={showConfirmPassword ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Confirm Password"
+                className="bg-transparent outline-none w-full placeholder-white"
+              />
+
+              <span
+                className="absolute right-3 cursor-pointer"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                {showConfirmPassword ? <FaEye /> : <FaEyeSlash />}
+              </span>
+            </div>
+          )}
 
           <button
             type="submit"

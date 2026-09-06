@@ -1,6 +1,8 @@
 import { useState, useCallback } from "react";
 import ServiceCard from "./ServiceCard";
 import { API_BASE_URL } from "../config/api";
+import { useFavorites } from "../hooks/useFavorites";
+import { toast } from "react-toastify";
 import {
   FaMapMarkerAlt, FaSpinner, FaLocationArrow, FaExclamationTriangle
 } from "react-icons/fa";
@@ -28,6 +30,7 @@ async function fetchOverpassServices(lat, lng) {
   const results = (data.elements || [])
     .filter((el) => el.tags?.name)
     .map((el) => ({
+      placeId: `${el.tags.name}::${el.lat.toFixed(5)}::${el.lon.toFixed(5)}`,
       name: el.tags.name,
       type: el.tags.amenity || el.tags.craft || el.tags.shop || el.tags.leisure || "service",
       phone: el.tags.phone || el.tags["contact:phone"] || null,
@@ -49,6 +52,33 @@ export default function Services() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [requested, setRequested] = useState(false);
+
+  const { isLoggedIn, favoriteByPlaceId, addFavorite, removeFavorite } = useFavorites();
+
+  const handleToggleFavorite = useCallback(
+    (svc) => {
+      if (!isLoggedIn) {
+        toast.info("Please login to save favorites ❤️");
+        return;
+      }
+      const existing = favoriteByPlaceId.get(svc.placeId);
+      if (existing) {
+        removeFavorite(existing._id);
+      } else {
+        addFavorite({
+          placeId: svc.placeId,
+          name: svc.name,
+          category: svc.type,
+          lat: svc.position[0],
+          lng: svc.position[1],
+          address: svc.address,
+          phone: svc.phone,
+          rating: svc.rating,
+        });
+      }
+    },
+    [isLoggedIn, favoriteByPlaceId, addFavorite, removeFavorite]
+  );
 
   const findServices = useCallback(() => {
     setRequested(true);
@@ -139,6 +169,8 @@ export default function Services() {
                 distance={s.distance}
                 phone={s.phone}
                 address={s.address}
+                isFavorite={favoriteByPlaceId.has(s.placeId)}
+                onToggleFavorite={() => handleToggleFavorite(s)}
               />
             ))}
           </div>

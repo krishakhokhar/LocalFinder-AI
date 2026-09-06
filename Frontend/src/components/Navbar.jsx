@@ -79,8 +79,28 @@ export default function Navbar() {
                 {user.email?.charAt(0).toUpperCase()}
               </div>
               {openDropdown && (
-                <div className="absolute right-0 mt-2 w-36 bg-white shadow-xl rounded-xl p-2 border border-gray-100 animate-fadeUp">
-                  <div className="px-3 py-1.5 text-xs text-gray-400 border-b mb-1">{user.email}</div>
+                <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-2rem)] bg-white shadow-xl rounded-2xl p-2 border border-gray-100 animate-fadeUp overflow-hidden">
+                  <div className="flex items-center gap-3 px-3 py-2 border-b border-gray-100 mb-1">
+                    <div className="w-9 h-9 flex-shrink-0 flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-full font-bold text-sm">
+                      {user.email?.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-gray-800 truncate" title={user.email}>
+                        {user.email}
+                      </p>
+                    </div>
+                  </div>
+
+                  <Link
+                    to="/favorites"
+                    onClick={() => setOpenDropdown(false)}
+                    className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-lg transition"
+                  >
+                    <span>❤️</span> My Favorites
+                  </Link>
+
+                  <div className="border-t border-gray-100 my-1"></div>
+
                   <button
                     onClick={() => {
                       localStorage.removeItem("token");
@@ -134,16 +154,25 @@ export default function Navbar() {
             </Link>
           ))}
           {user ? (
-            <button
-              onClick={() => {
-                localStorage.removeItem("token");
-                localStorage.removeItem("user");
-                window.location.reload();
-              }}
-              className="w-full bg-red-500 text-white py-2.5 rounded-xl text-sm font-semibold"
-            >
-              Logout
-            </button>
+            <>
+              <Link
+                to="/favorites"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-2 text-sm font-medium py-2 px-3 rounded-lg text-gray-700 hover:bg-gray-50 transition"
+              >
+                <span>❤️</span> My Favorites
+              </Link>
+              <button
+                onClick={() => {
+                  localStorage.removeItem("token");
+                  localStorage.removeItem("user");
+                  window.location.reload();
+                }}
+                className="w-full bg-red-500 text-white py-2.5 rounded-xl text-sm font-semibold"
+              >
+                Logout
+              </button>
+            </>
           ) : (
             <Link to="/auth" onClick={() => setIsOpen(false)}>
               <button className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white py-2.5 rounded-xl text-sm font-semibold">
