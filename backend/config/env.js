@@ -73,6 +73,24 @@ export function assertEnv() {
         `Copy backend/.env.example to backend/.env and fill them in.`
     );
   }
+  // Atlas hands you a connection string with the password left as a
+  // <db_password> placeholder. Pasting it unedited produces
+  // "MongoServerError: bad auth : authentication failed" at connect time,
+  // which reads like a wrong password rather than an unfilled template.
+  const placeholders = (env.mongoUri || "").match(/<[^>@/]*>/g);
+  if (placeholders) {
+    const message =
+      `MONGO_URI still contains a placeholder (${placeholders.join(", ")}). ` +
+      `Replace it with the real value - in Atlas: Database > Connect > Drivers, and if you have ` +
+      `forgotten the password, Database Access > Edit > Edit Password. URL-encode any of ` +
+      `: / ? # [ ] @ in it.`;
+    // Don't take away the no-database escape hatch: someone working on the
+    // frontend has deliberately said they do not need Mongo, so an unfilled
+    // template is a warning for them rather than a reason to refuse to boot.
+    if (env.allowStartWithoutDb) console.warn(`[env] ${message}`);
+    else throw new Error(message);
+  }
+
   if (env.jwtSecret && env.jwtSecret.length < 16) {
     throw new Error("JWT_SECRET is too short - use at least 32 random characters.");
   }

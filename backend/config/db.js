@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { env } from "./env.js";
+import { ensureSrvResolution } from "./dns.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("db");
@@ -27,6 +28,12 @@ export default async function connectDB() {
   mongoose.connection.on("connected", () => log.info("MongoDB connected"));
   mongoose.connection.on("error", (error) => log.error("MongoDB error", error.message));
   mongoose.connection.on("disconnected", () => log.warn("MongoDB disconnected"));
+
+  // mongodb+srv:// needs an SRV record before it can connect, and that lookup
+  // uses Node's bundled resolver rather than the OS one. On networks where
+  // that resolver is misconfigured it fails with "querySrv ECONNREFUSED" even
+  // though the machine's networking is otherwise fine - see config/dns.js.
+  await ensureSrvResolution(env.mongoUri);
 
   try {
     await mongoose.connect(env.mongoUri, {
