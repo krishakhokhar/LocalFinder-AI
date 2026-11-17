@@ -1,67 +1,142 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { API_BASE_URL } from "../config/api";
-
-function authHeaders() {
-  const token = localStorage.getItem("token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "react-toastify";
+import favoritesApi from "../services/favoritesApi";
+import { useAuth } from "../context/AuthContext";
 
 /**
- * Shared favorites state/actions used by the Services pages and the
- * My Favorites page, so the "is this favorited" list and add/remove
- * logic lives in exactly one place.
+ * Shared favourites state.
+ *
+ * Toggling is optimistic: the heart fills immediately and rolls back if the
+ * server rejects it, because waiting ~300ms for a round trip to colour an
+ * icon feels broken. Signed-out users get a prompt instead of a silent
+ * no-op.
  */
 export function useFavorites() {
-  const isLoggedIn = !!localStorage.getItem("token");
+  const { isAuthenticated } = useAuth();
   const [favorites, setFavorites] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [pending, setPending] = useState(() => new Set());
 
   const refresh = useCallback(async () => {
-    if (!isLoggedIn) {
+    if (!isAuthenticated) {
       setFavorites([]);
       setLoaded(true);
       return;
     }
     try {
-      const res = await fetch(`${API_BASE_URL}/api/favorites`, { headers: authHeaders() });
-      const data = await res.json();
-      if (data.success) setFavorites(data.favorites);
+      const data = await favoritesApi.list();
+      setFavorites(data.favorites || []);
     } catch {
-      // silent - favorites are a nice-to-have, not core functionality
+      // Favourites are an enhancement; a failure here must not block the page.
+    } finally {
+      setLoaded(true);
     }
-    setLoaded(true);
-  }, [isLoggedIn]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
+    setLoaded(false);
     refresh();
   }, [refresh]);
 
   const favoriteByPlaceId = useMemo(() => {
     const map = new Map();
-    favorites.forEach((f) => map.set(f.placeId, f));
+    favorites.forEach((favorite) => map.set(favorite.placeId, favorite));
     return map;
   }, [favorites]);
 
-  const addFavorite = useCallback(async (service) => {
-    const res = await fetch(`${API_BASE_URL}/api/favorites`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(service),
-    });
-    const data = await res.json();
-    if (data.success) setFavorites((prev) => [data.favorite, ...prev]);
-    return data;
-  }, []);
+  const isFavorite = useCallback((placeId) => favoriteByPlaceId.has(placeId), [favoriteByPlaceId]);
 
-  const removeFavorite = useCallback(async (id) => {
-    const res = await fetch(`${API_BASE_URL}/api/favorites/${id}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    });
-    const data = await res.json();
-    if (data.success) setFavorites((prev) => prev.filter((f) => f._id !== id));
-    return data;
-  }, []);
+  const toggleFavorite = useCallback(
+    async (place) => {
+      if (!isAuthenticated) {
+        toast.info("Sign in to save places you like");
+        return { requiresAuth: true };
+      }
+      if (!place?.placeId) return { error: true };
 
-  return { favorites, loaded, isLoggedIn, favoriteByPlaceId, addFavorite, removeFavorite, refresh };
+      const existing = favoriteByPlaceId.get(place.placeId);
+      setPending((previous) => new Set(previous).add(place.placeId));
+
+      try {
+        if (existing) {
+          setFavorites((previous) => previous.filter((item) => item.placeId !== place.placeId));
+          await favoritesApi.remove(existing._id);
+          toast.success("Removed from saved places");
+          return { removed: true };
+        }
+
+        // Optimistic insert, replaced by the server's record on success.
+        const optimistic = {
+          _id: `optimistic-${place.placeId}`,
+          placeId: place.placeId,
+          name: place.name,
+          category: place.category,
+          lat: place.lat,
+          lng: place.lng,
+          address: place.address || null,
+          phone: place.phone || null,
+          rating: place.rating ?? null,
+          ratingCount: place.ratingCount ?? 0,
+        };
+        setFavorites((previous) => [optimistic, ...previous]);
+
+        const data = await favoritesApi.add({
+          placeId: place.placeId,
+          name: place.name,
+          category: place.category,
+          lat: place.lat,
+          lng: place.lng,
+          address: place.address || undefined,
+          phone: place.phone || undefined,
+          opening_hours: place.openingHoursRaw || undefined,
+        });
+
+        setFavorites((previous) =>
+          previous.map((item) => (item._id === optimistic._id ? data.favorite : item))
+        );
+        toast.success("Saved to your places");
+        return { added: true };
+      } catch (error) {
+        await refresh();
+        toast.error(error.message || "Could not update your saved places");
+        return { error: true };
+      } finally {
+        setPending((previous) => {
+          const next = new Set(previous);
+          next.delete(place.placeId);
+          return next;
+        });
+      }
+    },
+    [isAuthenticated, favoriteByPlaceId, refresh]
+  );
+
+  const removeFavorite = useCallback(
+    async (id) => {
+      const snapshot = favorites;
+      setFavorites((previous) => previous.filter((item) => item._id !== id));
+      try {
+        await favoritesApi.remove(id);
+        toast.success("Removed from saved places");
+      } catch (error) {
+        setFavorites(snapshot);
+        toast.error(error.message || "Could not remove that place");
+      }
+    },
+    [favorites]
+  );
+
+  return {
+    favorites,
+    loaded,
+    isLoggedIn: isAuthenticated,
+    favoriteByPlaceId,
+    isFavorite,
+    toggleFavorite,
+    removeFavorite,
+    refresh,
+    isPending: (placeId) => pending.has(placeId),
+  };
 }
+
+export default useFavorites;

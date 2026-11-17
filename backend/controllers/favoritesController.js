@@ -1,67 +1,92 @@
 import Favorite from "../models/Favorite.js";
+import Review from "../models/Review.js";
+import { ApiError, ok, created } from "../utils/apiResponse.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { businessIdFromPlaceId, isBusinessPlaceId } from "../utils/placeId.js";
 
-export const addFavorite = async (req, res) => {
-  try {
-    const { placeId, name, category, lat, lng, address, phone, rating, opening_hours } = req.body;
+/**
+ * Favourites are stored with just enough of a snapshot to render a card
+ * offline (name, coordinates, address, phone). Ratings are *not* snapshotted:
+ * they are looked up live from the Review collection on read, so a saved
+ * place always shows the current real rating rather than a stale - or, in
+ * the previous version, randomly generated - one.
+ */
+function present(favorite, summaries) {
+  const summary = summaries.get(favorite.placeId);
+  return {
+    _id: favorite._id,
+    placeId: favorite.placeId,
+    name: favorite.name,
+    category: favorite.category || null,
+    lat: favorite.lat,
+    lng: favorite.lng,
+    address: favorite.address || null,
+    phone: favorite.phone || null,
+    openingHoursRaw: favorite.opening_hours || null,
+    source: favorite.source || (isBusinessPlaceId(favorite.placeId) ? "localfinder" : "osm"),
+    businessId: favorite.business ? String(favorite.business) : businessIdFromPlaceId(favorite.placeId),
+    rating: summary?.rating ?? null,
+    ratingCount: summary?.ratingCount ?? 0,
+    createdAt: favorite.createdAt,
+  };
+}
 
-    if (!placeId || !name || typeof lat !== "number" || typeof lng !== "number") {
-      return res.status(400).json({
-        success: false,
-        message: "placeId, name, lat and lng are required",
-      });
-    }
+export const addFavorite = asyncHandler(async (req, res) => {
+  const { placeId, name, category, lat, lng, address, phone, opening_hours: openingHours } = req.body;
 
-    const existing = await Favorite.findOne({ userId: req.userId, placeId });
-    if (existing) {
-      return res.status(400).json({ success: false, message: "Already in favorites" });
-    }
-
-    const favorite = await Favorite.create({
-      userId: req.userId,
-      placeId,
-      name,
-      category,
-      lat,
-      lng,
-      address,
-      phone,
-      rating,
-      opening_hours,
-    });
-
-    return res.status(201).json({ success: true, favorite });
-  } catch (error) {
-    if (error.code === 11000) {
-      return res.status(400).json({ success: false, message: "Already in favorites" });
-    }
-    if (error.name === "ValidationError") {
-      return res.status(400).json({ success: false, message: error.message });
-    }
-    return res.status(500).json({ success: false, message: "Server error" });
+  const existing = await Favorite.findOne({ userId: req.userId, placeId }).lean();
+  if (existing) {
+    throw ApiError.conflict("Already in favorites");
   }
-};
 
-// Scoped to req.userId only - a user can never see another user's favorites.
-export const getFavorites = async (req, res) => {
-  try {
-    const favorites = await Favorite.find({ userId: req.userId }).sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, favorites });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
-};
+  const businessId = businessIdFromPlaceId(placeId);
+  const favorite = await Favorite.create({
+    userId: req.userId,
+    placeId,
+    name,
+    category,
+    lat,
+    lng,
+    address,
+    phone,
+    opening_hours: openingHours,
+    business: businessId || null,
+    source: businessId ? "localfinder" : "osm",
+  });
 
-// Ownership is enforced in the query itself (userId: req.userId), not just
-// checked after the fact - a user can never delete another user's favorite
-// even if they guess/know its id.
-export const removeFavorite = async (req, res) => {
-  try {
-    const favorite = await Favorite.findOneAndDelete({ _id: req.params.id, userId: req.userId });
-    if (!favorite) {
-      return res.status(404).json({ success: false, message: "Favorite not found" });
-    }
-    return res.status(200).json({ success: true, message: "Removed from favorites" });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: "Server error" });
+  const summaries = await Review.summaryForPlaceIds([placeId]);
+  return created(res, { favorite: present(favorite, summaries) });
+});
+
+/** Scoped to req.userId only - a user can never see another user's favorites. */
+export const getFavorites = asyncHandler(async (req, res) => {
+  const favorites = await Favorite.find({ userId: req.userId }).sort({ createdAt: -1 }).lean();
+  const summaries = await Review.summaryForPlaceIds(favorites.map((favorite) => favorite.placeId));
+
+  return ok(res, { favorites: favorites.map((favorite) => present(favorite, summaries)) });
+});
+
+/**
+ * Ownership is enforced in the query itself (userId: req.userId), not just
+ * checked after the fact - a user can never delete another user's favorite
+ * even if they guess/know its id.
+ */
+export const removeFavorite = asyncHandler(async (req, res) => {
+  const favorite = await Favorite.findOneAndDelete({ _id: req.params.id, userId: req.userId });
+  if (!favorite) {
+    throw ApiError.notFound("Favorite not found");
   }
-};
+  return ok(res, { message: "Removed from favorites" });
+});
+
+/** Deleting by placeId, so the UI can un-favourite from a search result. */
+export const removeFavoriteByPlaceId = asyncHandler(async (req, res) => {
+  const favorite = await Favorite.findOneAndDelete({
+    placeId: req.body.placeId,
+    userId: req.userId,
+  });
+  if (!favorite) {
+    throw ApiError.notFound("Favorite not found");
+  }
+  return ok(res, { message: "Removed from favorites" });
+});

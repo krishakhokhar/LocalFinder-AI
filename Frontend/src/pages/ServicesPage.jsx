@@ -1,375 +1,449 @@
-import { useState, useEffect, useCallback } from "react";
-import { useLocation } from "react-router-dom";
-import Navbar from "../components/Navbar";
-import ServiceCard from "../components/ServiceCard";
-import MapComponent from "../components/Map";
-import { API_BASE_URL } from "../config/api";
-import { useFavorites } from "../hooks/useFavorites";
-import { toast } from "react-toastify";
-import {
-  FaMapMarkerAlt, FaLocationArrow, FaSpinner,
-  FaSearch, FaExclamationTriangle, FaRedo,
-  FaCut, FaTools, FaBolt, FaUtensils, FaSpa, FaCar, FaStore
-} from "react-icons/fa";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { Compass, List, MapIcon, MapPin, Navigation, SearchX, ShieldAlert } from "lucide-react";
+import AppShell from "../components/layout/AppShell";
+import Button from "../components/common/Button";
+import EmptyState from "../components/common/EmptyState";
+import ErrorState from "../components/common/ErrorState";
+import Pagination from "../components/common/Pagination";
+import { BusinessCardSkeleton } from "../components/common/Skeleton";
+import BusinessCard from "../components/business/BusinessCard";
+import FilterBar from "../components/explore/FilterBar";
+import MapPanel from "../components/explore/MapPanel";
+import SearchField from "../components/explore/SearchField";
+import Modal from "../components/common/Modal";
+import ReviewsSection from "../components/reviews/ReviewsSection";
+import placesApi from "../services/placesApi";
+import useFavorites from "../hooks/useFavorites";
+import useGeolocation from "../hooks/useGeolocation";
+import useDebounce from "../hooks/useDebounce";
+import { BUILT_IN_CATEGORY_FALLBACK } from "../config/categories";
 
-const CATEGORIES = [
-  { key: "all",         label: "All",         icon: <FaStore /> },
-  { key: "salon",       label: "Salon",       icon: <FaCut /> },
-  { key: "plumber",     label: "Plumber",     icon: <FaTools /> },
-  { key: "electrician", label: "Electrician", icon: <FaBolt /> },
-  { key: "restaurant",  label: "Restaurant",  icon: <FaUtensils /> },
-  { key: "spa",         label: "Spa/Gym",     icon: <FaSpa /> },
-  { key: "car",         label: "Car Service", icon: <FaCar /> },
-];
+const DEFAULT_FILTERS = {
+  category: "all",
+  radius: 3000,
+  sort: "distance",
+  openNow: false,
+  minRating: 0,
+  maxPrice: null,
+  includeExternal: true,
+  page: 1,
+};
 
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * (Math.PI / 180)) *
-      Math.cos(lat2 * (Math.PI / 180)) *
-      Math.sin(dLon / 2) ** 2;
-  return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(2);
-}
-
-async function fetchOverpass(lat, lng, catKey, radiusM = 3000) {
-  const params = new URLSearchParams({
-    lat: String(lat),
-    lng: String(lng),
-    category: catKey,
-    radius: String(radiusM),
-  });
-  const res = await fetch(`${API_BASE_URL}/api/services/nearby?${params.toString()}`);
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error(data.message || "Could not fetch nearby services");
-  }
-  const results = (data.elements || [])
-    .filter((el) => el.tags?.name)
-    .map((el) => {
-      const slat = el.lat ?? el.center?.lat;
-      const slng = el.lon ?? el.center?.lon;
-      const dist = haversine(lat, lng, slat, slng);
-      return {
-        placeId: `${el.tags.name}::${slat.toFixed(5)}::${slng.toFixed(5)}`,
-        name: el.tags.name,
-        // Always show the business's real OSM type (e.g. "fitness_centre")
-        // rather than the active filter's category key - the "Spa/Gym"
-        // filter groups both spa and fitness_centre listings together, but
-        // a gym should still be labeled/iconed as a gym, not forced to "spa".
-        type: el.tags.amenity || el.tags.craft || el.tags.shop || el.tags.leisure || catKey || "service",
-        phone: el.tags.phone || el.tags["contact:phone"] || null,
-        address: el.tags["addr:street"]
-          ? `${el.tags["addr:street"]}${el.tags["addr:housenumber"] ? " " + el.tags["addr:housenumber"] : ""}`
-          : null,
-        website: el.tags.website || el.tags["contact:website"] || null,
-        opening_hours: el.tags.opening_hours || null,
-        rating: (3.5 + Math.random() * 1.5).toFixed(1),
-        distance: dist + " km",
-        distNum: parseFloat(dist),
-        position: [slat, slng],
-      };
-    })
-    .sort((a, b) => a.distNum - b.distNum);
-
-  return { results, degradedMessage: data.degraded ? data.message : null };
-}
-
+/**
+ * Explore: the map-and-list discovery view.
+ *
+ * Map and list are two views of one array. Selecting a card flies the map
+ * to that pin and opens its popup; clicking a pin scrolls the matching
+ * card into view and highlights it. Selection is keyed by `placeId`, not
+ * by name or array index, so two shops with the same name on the same
+ * street stay distinct.
+ *
+ * Filters live in the URL, which makes any view shareable and makes the
+ * browser's back button behave the way people expect.
+ */
 export default function ServicesPage({ selectedPosition, onLocationChange }) {
-  const routerLocation = useLocation();
-  const params = new URLSearchParams(routerLocation.search);
-  const typeFromURL = params.get("type") || "all";
-  const initCat = CATEGORIES.find((c) => c.key === typeFromURL) ? typeFromURL : "all";
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [activeCategory, setActiveCategory] = useState(initCat);
-  const [search, setSearch] = useState("");
-  const [userLocation, setUserLocation] = useState(null);
-  const [services, setServices] = useState([]);
+  const [filters, setFilters] = useState(() => ({
+    ...DEFAULT_FILTERS,
+    category: searchParams.get("category") || searchParams.get("type") || DEFAULT_FILTERS.category,
+    radius: Number(searchParams.get("radius")) || DEFAULT_FILTERS.radius,
+    sort: searchParams.get("sort") || DEFAULT_FILTERS.sort,
+    openNow: searchParams.get("openNow") === "1",
+    minRating: Number(searchParams.get("minRating")) || 0,
+    maxPrice: searchParams.get("maxPrice") ? Number(searchParams.get("maxPrice")) : null,
+    page: Number(searchParams.get("page")) || 1,
+  }));
+
+  const [query, setQuery] = useState(searchParams.get("q") || "");
+  const debouncedQuery = useDebounce(query, 350);
+
+  const [categories, setCategories] = useState(BUILT_IN_CATEGORY_FALLBACK);
+  const [results, setResults] = useState([]);
+  const [meta, setMeta] = useState({ total: 0, pages: 1, radiusUsed: 3000, attribution: null });
   const [loading, setLoading] = useState(false);
-  const [locLoading, setLocLoading] = useState(false);
   const [error, setError] = useState("");
-  const [mapCenter, setMapCenter] = useState(selectedPosition || null);
-  const [locationGranted, setLocationGranted] = useState(false);
-  const [selectedService, setSelectedService] = useState(null);
+  const [notice, setNotice] = useState("");
+  const [selectedId, setSelectedId] = useState(null);
+  const [focusPosition, setFocusPosition] = useState(selectedPosition || null);
+  const [mobileView, setMobileView] = useState("list");
+  // One modal for the whole list rather than one per card.
+  const [reviewTarget, setReviewTarget] = useState(null);
+  // The point the search is anchored to - the user's location, or wherever
+  // they last pressed "search this area".
+  const [origin, setOrigin] = useState(null);
 
-  const { isLoggedIn, favoriteByPlaceId, addFavorite, removeFavorite } = useFavorites();
+  const listRef = useRef(null);
+  const cardRefs = useRef(new Map());
+  const requestId = useRef(0);
 
-  const handleToggleFavorite = useCallback(
-    (svc) => {
-      if (!isLoggedIn) {
-        toast.info("Please login to save favorites ❤️");
-        return;
-      }
-      const existing = favoriteByPlaceId.get(svc.placeId);
-      if (existing) {
-        removeFavorite(existing._id);
-      } else {
-        addFavorite({
-          placeId: svc.placeId,
-          name: svc.name,
-          category: svc.type,
-          lat: svc.position[0],
-          lng: svc.position[1],
-          address: svc.address,
-          phone: svc.phone,
-          rating: svc.rating,
-          opening_hours: svc.opening_hours,
+  const { location, status: locationStatus, error: locationError, request, isLocating } = useGeolocation();
+  const { favoriteByPlaceId, toggleFavorite } = useFavorites();
+
+  /* ------------------------------------------------------------------ *
+   * categories
+   * ------------------------------------------------------------------ */
+  useEffect(() => {
+    const controller = new AbortController();
+    placesApi
+      .categories({ signal: controller.signal })
+      .then((data) => {
+        if (data.categories?.length) setCategories(data.categories);
+      })
+      .catch(() => {
+        // The built-in list is already rendered; a failure changes nothing.
+      });
+    return () => controller.abort();
+  }, []);
+
+  /* ------------------------------------------------------------------ *
+   * location
+   * ------------------------------------------------------------------ */
+  useEffect(() => {
+    request();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ask once on mount
+  }, []);
+
+  useEffect(() => {
+    if (!location) return;
+    setOrigin((current) => current || location);
+    onLocationChange?.(location);
+  }, [location, onLocationChange]);
+
+  /* ------------------------------------------------------------------ *
+   * search
+   * ------------------------------------------------------------------ */
+  const runSearch = useCallback(
+    async (searchOrigin, activeFilters, term) => {
+      if (!searchOrigin) return;
+      const id = requestId.current + 1;
+      requestId.current = id;
+
+      setLoading(true);
+      setError("");
+      setNotice("");
+
+      try {
+        const data = await placesApi.nearby({
+          lat: searchOrigin.lat,
+          lng: searchOrigin.lng,
+          category: activeFilters.category,
+          radius: activeFilters.radius,
+          q: term,
+          openNow: activeFilters.openNow,
+          minRating: activeFilters.minRating,
+          maxPrice: activeFilters.maxPrice,
+          sort: activeFilters.sort,
+          page: activeFilters.page,
+          limit: 20,
+          includeExternal: activeFilters.includeExternal,
         });
+
+        // Ignore a response that a newer request has already superseded.
+        if (id !== requestId.current) return;
+
+        setResults(data.results || []);
+        setMeta({
+          total: data.total || 0,
+          pages: data.pages || 1,
+          radiusUsed: data.radiusUsed || activeFilters.radius,
+          attribution: data.attribution || null,
+          registeredCount: data.registeredCount || 0,
+          externalCount: data.externalCount || 0,
+        });
+        if (data.degraded) setNotice(data.message);
+      } catch (requestError) {
+        if (id !== requestId.current || requestError.name === "AbortError") return;
+        setError(requestError.message || "Could not load results.");
+        setResults([]);
+      } finally {
+        if (id === requestId.current) setLoading(false);
       }
     },
-    [isLoggedIn, favoriteByPlaceId, addFavorite, removeFavorite]
+    []
   );
 
-  /* ── fetch Overpass results ── */
-  const fetchServices = useCallback(async (lat, lng, cat) => {
-    setLoading(true);
-    setError("");
-    setServices([]);
-    try {
-      const { results, degradedMessage } = await fetchOverpass(lat, lng, cat);
-      setServices(results);
-      if (degradedMessage) setError(degradedMessage);
-      else if (results.length === 0)
-        setError("No services found nearby, even after expanding the search radius. Try a different category.");
-    } catch {
-      setError("Could not fetch services. Check your internet connection.");
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (origin) runSearch(origin, filters, debouncedQuery);
+  }, [origin, filters, debouncedQuery, runSearch]);
+
+  /* keep the URL in step with the current view */
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (filters.category !== "all") next.set("category", filters.category);
+    if (debouncedQuery) next.set("q", debouncedQuery);
+    if (filters.radius !== DEFAULT_FILTERS.radius) next.set("radius", String(filters.radius));
+    if (filters.sort !== DEFAULT_FILTERS.sort) next.set("sort", filters.sort);
+    if (filters.openNow) next.set("openNow", "1");
+    if (filters.minRating) next.set("minRating", String(filters.minRating));
+    if (filters.maxPrice) next.set("maxPrice", String(filters.maxPrice));
+    if (filters.page > 1) next.set("page", String(filters.page));
+    setSearchParams(next, { replace: true });
+  }, [filters, debouncedQuery, setSearchParams]);
+
+  /* the AI assistant can point the map at a result */
+  useEffect(() => {
+    if (selectedPosition) setFocusPosition(selectedPosition);
+  }, [selectedPosition]);
+
+  /* ------------------------------------------------------------------ *
+   * selection, shared by map and list
+   * ------------------------------------------------------------------ */
+  const selectPlace = useCallback((place, { scroll = true } = {}) => {
+    setSelectedId(place.placeId);
+    setFocusPosition([place.lat, place.lng]);
+
+    if (scroll) {
+      const node = cardRefs.current.get(place.placeId);
+      node?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
   }, []);
 
-  /* ── get user location ── */
-  const getLocation = useCallback(() => {
-    if (!navigator.geolocation)
-      return setError("Geolocation is not supported by your browser.");
-    setLocLoading(true);
-    setError("");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setUserLocation({ lat, lng });
-        onLocationChange?.({ lat, lng });
-        setMapCenter([lat, lng]);
-        setLocationGranted(true);
-        setLocLoading(false);
-        fetchServices(lat, lng, activeCategory);
-      },
-      () => {
-        setError("Location permission denied. Please allow access and try again.");
-        setLocLoading(false);
-      },
-      { enableHighAccuracy: true }
-    );
-  }, [activeCategory, fetchServices, onLocationChange]);
-
-  /* auto-request on mount */
-  useEffect(() => { getLocation(); }, []);
-
-  /* refetch on category change */
-  useEffect(() => {
-    if (userLocation) fetchServices(userLocation.lat, userLocation.lng, activeCategory);
-  }, [activeCategory]);
-
-  const filteredServices = services.filter((s) =>
-    s.name.toLowerCase().includes(search.toLowerCase())
+  const selectFromMap = useCallback(
+    (place) => {
+      selectPlace(place);
+      if (window.matchMedia("(max-width: 1023px)").matches) setMobileView("list");
+    },
+    [selectPlace]
   );
 
+  const searchThisArea = useCallback((coords) => {
+    setOrigin(coords);
+    setFilters((current) => ({ ...current, page: 1 }));
+  }, []);
+
+  const resetFilters = () => {
+    setFilters({ ...DEFAULT_FILTERS, category: filters.category });
+    setQuery("");
+  };
+
+  const findMe = async () => {
+    const coords = await request();
+    if (coords) {
+      setOrigin(coords);
+      setFocusPosition([coords.lat, coords.lng]);
+    }
+  };
+
+  const hasOrigin = Boolean(origin);
+  const showSkeletons = loading && results.length === 0;
+
+  const radiusNotice = useMemo(() => {
+    if (!meta.radiusUsed || meta.radiusUsed <= filters.radius) return null;
+    return `Nothing within ${(filters.radius / 1000).toFixed(0)} km, so the search widened to ${(meta.radiusUsed / 1000).toFixed(0)} km.`;
+  }, [meta.radiusUsed, filters.radius]);
+
   return (
-    /* ── Full viewport layout ── */
-    <div className="services-page" style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
-      <Navbar />
-
-      {/* Header */}
-      <div style={{ background: "linear-gradient(135deg,#2563eb,#4338ca)", color: "#fff", padding: "12px 20px", flexShrink: 0 }}>
-        {/* Row 1 */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: "20px", fontWeight: 800, display: "flex", alignItems: "center", gap: "8px" }}>
-              <FaMapMarkerAlt style={{ color: "#93c5fd" }} />
-              Nearby Services
-            </h1>
-            <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#bfdbfe" }}>
-              {userLocation
-                ? `📍 ${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}  ·  ${filteredServices.length} result${filteredServices.length !== 1 ? "s" : ""} found`
-                : "Detecting your location..."}
-            </p>
-          </div>
-
-          {/* Search + relocate */}
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "10px", padding: "6px 12px", gap: "6px" }}>
-              <FaSearch style={{ color: "rgba(255,255,255,0.6)", fontSize: "12px" }} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search..."
-                style={{ background: "transparent", border: "none", outline: "none", color: "#fff", fontSize: "13px", width: "140px" }}
+    <AppShell fullHeight footer={false}>
+      <div className="flex h-full min-h-0 flex-col">
+        {/* Header */}
+        <div className="border-b border-line bg-surface">
+          <div className="lf-container flex flex-col gap-3 py-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <SearchField
+                value={query}
+                onChange={setQuery}
+                onSubmit={() => setFilters((current) => ({ ...current, page: 1 }))}
+                resultCount={meta.total}
               />
             </div>
-            <button
-              onClick={getLocation}
-              title="Use my location"
-              style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "10px", padding: "8px 10px", cursor: "pointer", color: "#fff" }}
-            >
-              {locLoading ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaLocationArrow />}
-            </button>
-          </div>
-        </div>
 
-        {/* Category pills */}
-        <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "2px" }}>
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.key}
-              onClick={() => setActiveCategory(cat.key)}
-              style={{
-                flexShrink: 0,
-                display: "flex", alignItems: "center", gap: "5px",
-                fontSize: "12px", fontWeight: 600,
-                padding: "5px 12px", borderRadius: "20px",
-                border: activeCategory === cat.key ? "2px solid white" : "1px solid rgba(255,255,255,0.3)",
-                background: activeCategory === cat.key ? "#fff" : "rgba(255,255,255,0.1)",
-                color: activeCategory === cat.key ? "#2563eb" : "#fff",
-                cursor: "pointer",
-                transition: "all 0.2s",
-              }}
-            >
-              <span style={{ fontSize: "11px" }}>{cat.icon}</span>
-              {cat.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Main split: list | map ── */}
-      <div className="services-split" style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-
-        {/* LEFT: scrollable list */}
-        <div className="services-list" style={{ width: "380px", minWidth: "320px", overflowY: "auto", background: "#f9fafb", borderRight: "1px solid #e5e7eb", padding: "12px" }}>
-
-          {/* Location prompt */}
-          {!locationGranted && !locLoading && !error && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: "16px", textAlign: "center", padding: "32px" }}>
-              <div style={{ width: "72px", height: "72px", background: "#eff6ff", border: "4px solid #bfdbfe", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <FaLocationArrow style={{ color: "#3b82f6", fontSize: "28px" }} />
-              </div>
-              <div>
-                <p style={{ fontWeight: 700, fontSize: "16px", color: "#1f2937", margin: "0 0 4px" }}>Allow Location Access</p>
-                <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>We'll show real services near you — like Google Maps</p>
-              </div>
-              <button
-                onClick={getLocation}
-                style={{ background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", border: "none", borderRadius: "12px", padding: "12px 24px", fontWeight: 700, fontSize: "14px", cursor: "pointer", boxShadow: "0 4px 14px rgba(59,130,246,0.4)" }}
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                icon={Navigation}
+                onClick={findMe}
+                loading={isLocating}
+                className="whitespace-nowrap"
               >
-                📍 Find Nearby Services
-              </button>
-            </div>
-          )}
+                <span className="hidden sm:inline">My location</span>
+                <span className="sm:hidden">Locate</span>
+              </Button>
 
-          {/* Loc loading */}
-          {locLoading && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "200px", gap: "12px", color: "#6b7280" }}>
-              <FaSpinner style={{ fontSize: "32px", color: "#3b82f6", animation: "spin 1s linear infinite" }} />
-              <p style={{ fontSize: "13px" }}>Getting your location...</p>
-            </div>
-          )}
-
-          {/* Services loading */}
-          {locationGranted && loading && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "200px", gap: "12px", color: "#6b7280" }}>
-              <FaSpinner style={{ fontSize: "28px", color: "#3b82f6", animation: "spin 1s linear infinite" }} />
-              <p style={{ fontSize: "13px" }}>Searching real services nearby...</p>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && !locLoading && (
-            <div style={{ display: "flex", gap: "10px", background: "#fef2f2", border: "1px solid #fca5a5", color: "#dc2626", borderRadius: "12px", padding: "12px 14px", fontSize: "13px", marginBottom: "12px" }}>
-              <FaExclamationTriangle style={{ flexShrink: 0, marginTop: "2px" }} />
-              <div>
-                <p style={{ margin: "0 0 6px" }}>{error}</p>
-                <button onClick={getLocation} style={{ background: "none", border: "none", color: "#dc2626", cursor: "pointer", textDecoration: "underline", fontSize: "12px", padding: 0 }}>
-                  🔄 Try Again
+              {/* Map/list toggle, phones and tablets only */}
+              <div className="flex rounded-lg border border-line bg-surface p-0.5 lg:hidden">
+                <button
+                  type="button"
+                  onClick={() => setMobileView("list")}
+                  aria-pressed={mobileView === "list"}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                    mobileView === "list" ? "bg-brand-600 text-white" : "text-ink-muted"
+                  }`}
+                >
+                  <List className="h-3.5 w-3.5" aria-hidden="true" />
+                  List
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileView("map")}
+                  aria-pressed={mobileView === "map"}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                    mobileView === "map" ? "bg-brand-600 text-white" : "text-ink-muted"
+                  }`}
+                >
+                  <MapIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                  Map
                 </button>
               </div>
             </div>
-          )}
-
-          {/* Service cards */}
-          {!loading && filteredServices.map((svc, i) => (
-            <div
-              key={i}
-              onClick={() => { setMapCenter(svc.position); setSelectedService(svc); }}
-              style={{
-                marginBottom: "10px", cursor: "pointer",
-                outline: selectedService?.name === svc.name ? "2px solid #3b82f6" : "none",
-                borderRadius: "16px",
-              }}
-            >
-              <ServiceCard
-                title={svc.name}
-                type={svc.type}
-                rating={svc.rating}
-                distance={svc.distance}
-                phone={svc.phone}
-                address={svc.address}
-                opening_hours={svc.opening_hours}
-                website={svc.website}
-                lat={svc.position[0]}
-                lng={svc.position[1]}
-                userLat={userLocation?.lat}
-                userLng={userLocation?.lng}
-                isFavorite={favoriteByPlaceId.has(svc.placeId)}
-                onToggleFavorite={() => handleToggleFavorite(svc)}
-              />
-            </div>
-          ))}
-
-          {/* Empty state */}
-          {!loading && locationGranted && filteredServices.length === 0 && !error && (
-            <div style={{ textAlign: "center", padding: "48px 24px", color: "#9ca3af" }}>
-              <p style={{ fontSize: "40px" }}>🔍</p>
-              <p style={{ fontWeight: 600, color: "#6b7280" }}>Nothing found nearby</p>
-              <p style={{ fontSize: "12px", marginTop: "4px" }}>Try a different category</p>
-              <button onClick={() => fetchServices(userLocation.lat, userLocation.lng, activeCategory)} style={{ marginTop: "12px", color: "#3b82f6", background: "none", border: "none", cursor: "pointer", fontSize: "13px", textDecoration: "underline" }}>
-                🔄 Retry
-              </button>
-            </div>
-          )}
+          </div>
         </div>
 
-        {/* RIGHT: Map — takes remaining space (stacks below list on mobile/tablet) */}
-        <div className="services-map" style={{ flex: 1, position: "relative" }}>
-          <MapComponent
-            services={filteredServices}
-            selectedPosition={mapCenter || (userLocation ? [userLocation.lat, userLocation.lng] : [23.0225, 72.5714])}
-            userLocation={userLocation ? [userLocation.lat, userLocation.lng] : null}
-            selectedService={selectedService}
-          />
+        <FilterBar
+          filters={filters}
+          categories={categories}
+          onChange={setFilters}
+          onReset={resetFilters}
+          resultCount={meta.total}
+          loading={loading}
+        />
+
+        {/* Split view */}
+        <div className="flex min-h-0 flex-1">
+          {/* List */}
+          <div
+            ref={listRef}
+            className={`lf-scroll min-h-0 w-full shrink-0 overflow-y-auto border-r border-line bg-canvas lg:block lg:w-[420px] xl:w-[460px] ${
+              mobileView === "map" ? "hidden" : "block"
+            }`}
+          >
+            <div className="space-y-3 p-4">
+              {!hasOrigin && !isLocating ? (
+                <EmptyState
+                  icon={Compass}
+                  title="Share your location to start exploring"
+                  description="We use your coordinates to search around you. You can also drag the map and press “Search this area”."
+                  action={
+                    <Button icon={MapPin} onClick={findMe} loading={isLocating}>
+                      Use my location
+                    </Button>
+                  }
+                />
+              ) : null}
+
+              {locationStatus === "denied" && locationError && !hasOrigin ? (
+                <ErrorState title="Location is blocked" message={locationError} onRetry={findMe} />
+              ) : null}
+
+              {notice ? (
+                <div className="flex items-start gap-3 rounded-card border border-warning-100 bg-warning-50 p-3.5">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning-600" aria-hidden="true" />
+                  <p className="text-xs leading-relaxed text-warning-700">{notice}</p>
+                </div>
+              ) : null}
+
+              {radiusNotice && !loading ? (
+                <p className="rounded-lg bg-brand-50 px-3 py-2 text-xs font-medium text-brand-700">
+                  {radiusNotice}
+                </p>
+              ) : null}
+
+              {error ? (
+                <ErrorState message={error} onRetry={() => runSearch(origin, filters, debouncedQuery)} />
+              ) : null}
+
+              {showSkeletons
+                ? Array.from({ length: 6 }, (unused, index) => <BusinessCardSkeleton key={index} />)
+                : null}
+
+              {!loading && hasOrigin && !error && results.length === 0 ? (
+                <EmptyState
+                  icon={SearchX}
+                  title="No matches in this area"
+                  description="Try widening the radius, clearing a filter, or dragging the map somewhere else and searching again."
+                  action={
+                    <Button variant="outline" onClick={resetFilters}>
+                      Clear filters
+                    </Button>
+                  }
+                />
+              ) : null}
+
+              {results.map((place) => (
+                <div
+                  key={place.placeId}
+                  ref={(node) => {
+                    if (node) cardRefs.current.set(place.placeId, node);
+                    else cardRefs.current.delete(place.placeId);
+                  }}
+                >
+                  <BusinessCard
+                    place={place}
+                    selected={selectedId === place.placeId}
+                    onSelect={selectPlace}
+                    onOpenReviews={setReviewTarget}
+                    userLocation={origin}
+                    isFavorite={favoriteByPlaceId.has(place.placeId)}
+                    onToggleFavorite={toggleFavorite}
+                  />
+                </div>
+              ))}
+
+              {meta.pages > 1 ? (
+                <Pagination
+                  page={filters.page}
+                  pages={meta.pages}
+                  onChange={(page) => {
+                    setFilters((current) => ({ ...current, page }));
+                    listRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="pt-2"
+                />
+              ) : null}
+
+              {meta.attribution ? (
+                <p className="pb-2 pt-1 text-center text-2xs text-ink-faint">
+                  {meta.attribution}
+                  {meta.registeredCount > 0
+                    ? ` · ${meta.registeredCount} listed on LocalFinder`
+                    : ""}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Map */}
+          <div className={`min-h-0 flex-1 ${mobileView === "list" ? "hidden lg:block" : "block"}`}>
+            <MapPanel
+              places={results}
+              userLocation={origin}
+              focusPosition={focusPosition}
+              selectedId={selectedId}
+              onSelect={selectFromMap}
+              radius={meta.radiusUsed || filters.radius}
+              onSearchArea={searchThisArea}
+            />
+          </div>
         </div>
       </div>
 
-      {/* spin keyframe + mobile/tablet layout: stack list above map instead of
-          squeezing the map into a narrow side column below 900px */}
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-        @media (max-width: 900px) {
-          .services-page { height: auto !important; min-height: 100vh; overflow: visible !important; }
-          .services-split { flex-direction: column !important; overflow: visible !important; }
-          .services-list {
-            width: 100% !important;
-            min-width: 0 !important;
-            overflow-y: visible !important;
-            border-right: none !important;
-            border-bottom: 1px solid #e5e7eb;
-          }
-          .services-map { flex: none !important; width: 100%; height: 400px; min-height: 350px; max-height: 450px; }
-        }
-      `}</style>
-    </div>
+      <Modal
+        open={Boolean(reviewTarget)}
+        onClose={() => setReviewTarget(null)}
+        title={reviewTarget?.name}
+        description="Reviews written by LocalFinder users"
+        size="lg"
+      >
+        {reviewTarget ? (
+          <ReviewsSection
+            placeId={reviewTarget.placeId}
+            placeName={reviewTarget.name}
+            lat={reviewTarget.lat}
+            lng={reviewTarget.lng}
+            onSummaryChange={(summary) =>
+              setResults((current) =>
+                current.map((place) =>
+                  place.placeId === reviewTarget.placeId
+                    ? { ...place, rating: summary.rating, ratingCount: summary.count }
+                    : place
+                )
+              )
+            }
+          />
+        ) : null}
+      </Modal>
+    </AppShell>
   );
 }

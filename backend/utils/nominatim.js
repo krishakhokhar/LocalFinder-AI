@@ -95,3 +95,45 @@ export async function tryNominatim(category, radius, lat, lng) {
     return null;
   }
 }
+
+/**
+ * Forward geocoding: turns "Bodakdev, Ahmedabad" into coordinates.
+ *
+ * Used when someone names a place in the AI assistant instead of using
+ * their current location. Returns null rather than a guess when nothing
+ * matches, so the assistant asks instead of searching the wrong city.
+ *
+ * Same Nominatim usage policy applies: identified User-Agent, low volume,
+ * one request at a time.
+ */
+export async function geocodePlace(text, { countryCodes = "in" } = {}) {
+  const query = String(text || "").trim();
+  if (query.length < 2) return null;
+
+  try {
+    const res = await axios.get(NOMINATIM_URL, {
+      params: {
+        q: query,
+        format: "json",
+        limit: 1,
+        addressdetails: 1,
+        countrycodes: countryCodes,
+      },
+      headers: { "User-Agent": APP_USER_AGENT, Accept: "application/json" },
+      timeout: TIMEOUT_MS,
+    });
+
+    const first = Array.isArray(res.data) ? res.data[0] : null;
+    if (!first?.lat || !first?.lon) return null;
+
+    return {
+      lat: parseFloat(first.lat),
+      lng: parseFloat(first.lon),
+      label: first.display_name,
+      type: first.type,
+    };
+  } catch (err) {
+    console.warn("[nominatim] geocode failed:", err.message);
+    return null;
+  }
+}

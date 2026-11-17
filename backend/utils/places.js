@@ -26,7 +26,15 @@ function buildRadiusLadder(startRadius) {
  * radius expansion can reuse whichever mirror already proved responsive,
  * instead of re-scanning all mirrors at every radius tier.
  */
-export async function findNearbyPlaces({ lat, lng, category, radius, preferredMirror = null, skipOverpass = false }) {
+export async function findNearbyPlaces({
+  lat,
+  lng,
+  category,
+  radius,
+  preferredMirror = null,
+  skipOverpass = false,
+  deadline = null,
+}) {
   const cached = getCached(category, radius, lat, lng);
   if (cached) {
     return { elements: cached, provider: "cache", degraded: false, mirrorUsed: preferredMirror };
@@ -35,7 +43,14 @@ export async function findNearbyPlaces({ lat, lng, category, radius, preferredMi
   let overpassElements = null;
   let mirrorUsed = null;
   if (!skipOverpass) {
-    ({ elements: overpassElements, mirrorUsed } = await tryOverpass(category, radius, lat, lng, preferredMirror));
+    ({ elements: overpassElements, mirrorUsed } = await tryOverpass(
+      category,
+      radius,
+      lat,
+      lng,
+      preferredMirror,
+      deadline
+    ));
   }
   if (overpassElements !== null) {
     setCached(category, radius, lat, lng, overpassElements);
@@ -77,12 +92,29 @@ export async function findNearbyPlaces({ lat, lng, category, radius, preferredMi
  * later tiers skip straight to Nominatim rather than re-running the
  * same full mirror scan again for each wider radius.
  */
-export async function findNearbyPlacesExpanding({ lat, lng, category, startRadius }) {
+/**
+ * Overall time budget for one search, across every radius tier.
+ *
+ * Four tiers, each able to try several mirrors at six seconds apiece,
+ * can add up to a request nobody waits for - and a platform proxy will
+ * often cut it off before we answer anyway. Once the budget is spent
+ * the search stops widening and returns what it has, flagged with
+ * `timedOut` so the caller can say the search was cut short rather than
+ * implying the area is empty.
+ */
+const SEARCH_BUDGET_MS = 9000;
+
+export async function findNearbyPlacesExpanding({ lat, lng, category, startRadius, budgetMs = SEARCH_BUDGET_MS }) {
   const ladder = buildRadiusLadder(startRadius);
+  const deadline = Date.now() + budgetMs;
+
   let preferredMirror = null;
   let overpassAppearsDown = false;
+  let lastRadius = ladder[0];
 
   for (const radius of ladder) {
+    lastRadius = radius;
+
     const result = await findNearbyPlaces({
       lat,
       lng,
@@ -90,6 +122,7 @@ export async function findNearbyPlacesExpanding({ lat, lng, category, startRadiu
       radius,
       preferredMirror,
       skipOverpass: overpassAppearsDown,
+      deadline,
     });
 
     if (result.mirrorUsed) {
@@ -104,13 +137,25 @@ export async function findNearbyPlacesExpanding({ lat, lng, category, startRadiu
     if (result.elements.length > 0) {
       return { ...result, radiusUsed: radius };
     }
-    // genuinely empty at this radius - try the next, wider one
+
+    // Genuinely empty at this radius. Only widen if there is time left -
+    // a wider query is slower than the one that just finished, so going
+    // on with a nearly-spent budget mostly produces a timeout.
+    if (Date.now() >= deadline) {
+      return {
+        elements: [],
+        provider: result.provider,
+        degraded: false,
+        timedOut: true,
+        radiusUsed: radius,
+      };
+    }
   }
 
   return {
     elements: [],
     provider: "none",
     degraded: false,
-    radiusUsed: ladder[ladder.length - 1],
+    radiusUsed: lastRadius,
   };
 }

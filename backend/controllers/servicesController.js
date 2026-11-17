@@ -1,52 +1,92 @@
-import { VALID_CATEGORIES, MIN_RADIUS_M, MAX_RADIUS_M, DEFAULT_RADIUS_M } from "../utils/overpass.js";
-import { findNearbyPlacesExpanding } from "../utils/places.js";
+import mongoose from "mongoose";
+import Category from "../models/Category.js";
+import { searchPlaces } from "../services/placeSearchService.js";
+import { VALID_CATEGORIES } from "../utils/overpass.js";
+import { BUILT_IN_CATEGORIES } from "../config/categories.js";
+import { ok } from "../utils/apiResponse.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { recordEvent } from "../services/analyticsService.js";
 
-export const getNearbyServices = async (req, res) => {
-  const lat = parseFloat(req.query.lat);
-  const lng = parseFloat(req.query.lng);
-  const category = (req.query.category || req.query.type || "all").toLowerCase();
-  const radius = req.query.radius !== undefined ? parseInt(req.query.radius, 10) : DEFAULT_RADIUS_M;
+/**
+ * GET /api/services/nearby
+ *
+ * The response keeps the original `elements` array so anything built
+ * against the previous API still works, and adds `results`: the normalised,
+ * deduplicated, really-rated list that the current UI consumes.
+ *
+ * This endpoint never fails because an upstream map provider is down. A
+ * total outage comes back as `degraded: true` with an explanation and an
+ * empty list, so the page can say what happened instead of breaking.
+ */
+export const getNearbyServices = asyncHandler(async (req, res) => {
+  const query = req.validatedQuery;
+  const category = query.category || query.type || "all";
 
-  if (Number.isNaN(lat) || lat < -90 || lat > 90) {
-    return res.status(400).json({ success: false, message: "lat must be a number between -90 and 90", elements: [] });
-  }
-  if (Number.isNaN(lng) || lng < -180 || lng > 180) {
-    return res.status(400).json({ success: false, message: "lng must be a number between -180 and 180", elements: [] });
-  }
-  if (!VALID_CATEGORIES.includes(category)) {
-    return res.status(400).json({
-      success: false,
-      message: `category must be one of: ${VALID_CATEGORIES.join(", ")}`,
-      elements: [],
-    });
-  }
-  if (Number.isNaN(radius) || radius < MIN_RADIUS_M || radius > MAX_RADIUS_M) {
-    return res.status(400).json({
-      success: false,
-      message: `radius must be a number between ${MIN_RADIUS_M} and ${MAX_RADIUS_M}`,
-      elements: [],
-    });
-  }
-
-  // findNearbyPlacesExpanding never throws - a total upstream failure
-  // comes back as `degraded: true` with an empty list (surfaced as-is,
-  // never escalated further), so this endpoint can always answer with
-  // 200 rather than breaking the page. On a genuine empty result it
-  // automatically widens the search radius (radius -> 5km -> 10km ->
-  // 15km) before giving up, since the whole point of nearby search is
-  // to find the closest *available* service, not stop at a fixed radius.
-  const { elements, provider, degraded, message, radiusUsed } = await findNearbyPlacesExpanding({
-    lat,
-    lng,
+  const outcome = await searchPlaces({
+    lat: query.lat,
+    lng: query.lng,
     category,
-    startRadius: radius,
+    radius: query.radius,
+    query: query.q,
+    openNow: query.openNow === true,
+    minRating: query.minRating,
+    maxPrice: query.maxPrice ?? null,
+    sort: query.sort,
+    page: query.page,
+    limit: query.limit,
+    tzOffsetMinutes: query.tz,
+    includeExternal: query.includeExternal !== false,
   });
 
-  return res.status(200).json({
-    success: true,
-    elements,
-    provider,
-    radiusUsed,
-    ...(degraded ? { degraded: true, message } : {}),
+  // Fire-and-forget: analytics must never slow down or break a search.
+  recordEvent({
+    type: "search",
+    user: req.user?._id || null,
+    meta: { category, radius: query.radius, hasQuery: Boolean(query.q), results: outcome.total },
   });
-};
+
+  return ok(res, {
+    results: outcome.results,
+    elements: outcome.elements,
+    total: outcome.total,
+    page: outcome.page,
+    pages: outcome.pages,
+    limit: outcome.limit,
+    radiusUsed: outcome.radiusUsed,
+    provider: outcome.provider,
+    registeredCount: outcome.registeredCount,
+    externalCount: outcome.externalCount,
+    attribution: outcome.attribution,
+    ...(outcome.degraded ? { degraded: true, message: outcome.message } : {}),
+    ...(outcome.timedOut ? { timedOut: true, message: outcome.message } : {}),
+  });
+});
+
+/**
+ * GET /api/services/categories
+ *
+ * Admin-managed categories when they exist, falling back to the built-in
+ * list so a fresh database still renders a working UI.
+ */
+export const getCategories = asyncHandler(async (req, res) => {
+  let categories = [];
+  // Skip the query outright when Mongo is not connected: Mongoose would
+  // otherwise buffer the command and only fail after a 10s timeout, turning
+  // a trivial endpoint into a 10-second hang during an outage.
+  if (mongoose.connection.readyState === 1) {
+    try {
+      categories = await Category.find({ active: true }).sort({ order: 1, label: 1 }).lean();
+    } catch {
+      categories = [];
+    }
+  }
+
+  if (categories.length === 0) {
+    categories = BUILT_IN_CATEGORIES.map((category) => ({
+      ...category,
+      supportsExternalSearch: VALID_CATEGORIES.includes(category.key),
+    }));
+  }
+
+  return ok(res, { categories });
+});

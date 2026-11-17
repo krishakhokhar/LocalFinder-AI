@@ -1,59 +1,195 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+/* ===========================================================================
+   Base
+   =========================================================================== */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-canvas font-sans text-ink-soft antialiased;
+    /* Nothing in this app scrolls sideways. */
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display text-ink;
+    text-wrap: balance;
+  }
+
+  /* A single, visible focus treatment everywhere - keyboard users should
+     never have to hunt for where they are. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-600/60 ring-offset-2 ring-offset-canvas;
+  }
+
+  ::selection {
+    @apply bg-brand-100 text-ink;
+  }
 }
 
-/* =========================
-   🌟 Fade Up Animation
-========================= */
-@keyframes fadeUp {
+/* ===========================================================================
+   Components
+   =========================================================================== */
+@layer components {
+  .lf-container {
+    @apply mx-auto w-full max-w-content px-4 sm:px-6 lg:px-8;
+  }
+
+  .lf-card {
+    @apply rounded-card border border-line bg-surface shadow-soft;
+  }
+
+  /* Hairline scrollbar for the result rail and filter rows. */
+  .lf-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+  .lf-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .lf-scroll::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-line-strong;
+  }
+  .lf-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .lf-no-scrollbar {
+    scrollbar-width: none;
+  }
+  .lf-no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Loading placeholder: a moving highlight across a neutral block. */
+  .lf-skeleton {
+    @apply relative overflow-hidden rounded-lg bg-slate-200/70;
+  }
+  .lf-skeleton::after {
+    content: "";
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    background-image: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0.55) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+  }
+
+  .lf-line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* ===========================================================================
+   Leaflet overrides - the map has to look like part of the product
+   =========================================================================== */
+.leaflet-container {
+  @apply font-sans;
+  background: #eef2f7;
+}
+
+.leaflet-popup-content-wrapper {
+  @apply rounded-card border border-line p-0 shadow-lift;
+}
+
+.leaflet-popup-content {
+  margin: 0;
+  width: auto !important;
+}
+
+.leaflet-popup-tip {
+  @apply border border-line;
+}
+
+.leaflet-control-zoom a {
+  @apply !rounded-lg !border-line !text-ink-muted;
+}
+
+.leaflet-bar {
+  @apply !rounded-lg !border-line !shadow-soft;
+}
+
+/* Markers animate in; see components/explore/MapPanel.jsx */
+.lf-marker-enter {
+  animation: lf-marker-drop 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes lf-marker-drop {
   from {
     opacity: 0;
-    transform: translateY(25px);
+    transform: translateY(-14px) scale(0.85);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
+.lf-cluster {
+  @apply flex items-center justify-center rounded-full font-display font-bold text-white;
+  background: rgba(37, 99, 235, 0.92);
+  box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.18);
+}
+
+/* ===========================================================================
+   Toast styling, so react-toastify matches the design system
+   =========================================================================== */
+.Toastify__toast {
+  @apply rounded-card border border-line font-sans text-sm text-ink-soft shadow-lift;
+}
+.Toastify__toast-icon {
+  @apply text-brand-600;
+}
+.Toastify__progress-bar--success {
+  background: #10b981;
+}
+.Toastify__progress-bar--error {
+  background: #ef4444;
+}
+.Toastify__progress-bar--info {
+  background: #2563eb;
+}
+
+/* ===========================================================================
+   Reduced motion
+   Honoured globally, and again per-component through useReducedMotion so
+   Framer Motion springs stop too, not just CSS.
+   =========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Legacy animation class names kept so any markup still referencing them
+   keeps working while the redesign rolls through. */
 .animate-fadeUp {
-  animation: fadeUp 0.8s ease-out;
-}
-
-/* =========================
-   🌟 Slide Animation
-========================= */
-@keyframes slide {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.animate-slide {
-  animation: slide 1s ease-in-out;
-}
-
-/* =========================
-   🌟 Smooth Hover Scale
-========================= */
-.hover-scale {
-  transition: transform 0.3s ease;
-}
-
-.hover-scale:hover {
-  transform: scale(1.05);
-}
-html {
-  scroll-behavior: smooth;
+  @apply animate-fade-up;
 }

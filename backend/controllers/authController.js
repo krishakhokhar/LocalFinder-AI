@@ -1,119 +1,125 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import { env } from "../config/env.js";
+import { ApiError, ok, created } from "../utils/apiResponse.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BCRYPT_ROUNDS = 12;
 
-const signToken = (id) =>
-  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "1d" });
+const signToken = (user) =>
+  jwt.sign({ id: user._id, role: user.role }, env.jwtSecret, { expiresIn: env.jwtExpiresIn });
 
-export const registerUser = async (req, res) => {
-  try {
-    const { name, email, password } = req.body;
+/**
+ * Registration.
+ *
+ * Unlike the previous version this signs the user in immediately (returning
+ * a token), which removes the "registered, now log in again" step, and it
+ * returns the user object so the client never has to guess the role.
+ */
+export const registerUser = asyncHandler(async (req, res) => {
+  const { name, email, password, role, phone, city } = req.body;
 
-    if (!name || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Name, email and password are required",
-      });
-    }
-
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid email format",
-      });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: "Password must be at least 6 characters",
-      });
-    }
-
-    const existing = await User.findOne({ email });
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: "Email already exists",
-      });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    await User.create({ name, email, password: hashedPassword });
-
-    return res.status(201).json({
-      success: true,
-      message: "Registered successfully",
-    });
-  } catch (error) {
-    if (error.name === "ValidationError") {
-      return res.status(400).json({ success: false, message: error.message });
-    }
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  const existing = await User.findOne({ email }).lean();
+  if (existing) {
+    throw ApiError.conflict("An account with this email already exists");
   }
-};
 
-export const loginUser = async (req, res) => {
-  try {
-    const { email, password } = req.body;
+  const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const user = await User.create({
+    name,
+    email,
+    password: hashedPassword,
+    role: role === "owner" ? "owner" : "customer",
+    phone,
+    city,
+  });
 
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
-      });
-    }
+  return created(res, {
+    message: "Registered successfully",
+    token: signToken(user),
+    user: user.toPublic(),
+  });
+});
 
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password",
-      });
-    }
+export const loginUser = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid email or password",
-      });
-    }
+  // `password` is select:false on the schema, so it has to be asked for.
+  const user = await User.findOne({ email }).select("+password");
 
-    const token = signToken(user._id);
+  // Comparing against a dummy hash when the user does not exist keeps the
+  // response time roughly constant, so the endpoint does not reveal which
+  // emails are registered.
+  const hash = user?.password || "$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidin";
+  const isMatch = await bcrypt.compare(password, hash);
 
-    return res.status(200).json({
-      success: true,
-      message: "Login successful",
-      token,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  if (!user || !isMatch) {
+    throw ApiError.unauthorized("Invalid email or password");
   }
-};
-
-export const getMe = async (req, res) => {
-  try {
-    const user = await User.findById(req.userId).select("-password");
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-    return res.status(200).json({ success: true, user });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  if (!user.isActive) {
+    throw ApiError.forbidden("This account has been deactivated. Contact support.");
   }
-};
+
+  user.lastLoginAt = new Date();
+  await user.save();
+
+  return ok(res, {
+    message: "Login successful",
+    token: signToken(user),
+    user: user.toPublic(),
+  });
+});
+
+export const getMe = asyncHandler(async (req, res) => {
+  return ok(res, { user: req.user.toPublic() });
+});
+
+export const updateMe = asyncHandler(async (req, res) => {
+  const { name, phone, city, avatarUrl } = req.body;
+  const user = req.user;
+
+  if (name !== undefined) user.name = name;
+  if (phone !== undefined) user.phone = phone || undefined;
+  if (city !== undefined) user.city = city || undefined;
+  if (avatarUrl !== undefined) user.avatarUrl = avatarUrl || undefined;
+
+  await user.save();
+  return ok(res, { message: "Profile updated", user: user.toPublic() });
+});
+
+export const changePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  const user = await User.findById(req.user._id).select("+password");
+  const isMatch = await bcrypt.compare(currentPassword, user.password);
+  if (!isMatch) {
+    throw ApiError.badRequest("Your current password is incorrect");
+  }
+
+  user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+  await user.save();
+
+  // The existing token stays valid until it expires. Returning a fresh one
+  // lets the client replace it so the session restarts cleanly.
+  return ok(res, { message: "Password changed", token: signToken(user) });
+});
+
+/**
+ * Lets an existing customer start listing a business. Upgrading in place
+ * (rather than making them create a second account) keeps their favourites,
+ * reviews and bookings attached to one identity.
+ */
+export const becomeOwner = asyncHandler(async (req, res) => {
+  const user = req.user;
+  if (user.role === "admin") {
+    throw ApiError.badRequest("Admins already have full access");
+  }
+  if (user.role !== "owner") {
+    user.role = "owner";
+  }
+  user.phone = req.body.phone;
+  await user.save();
+
+  return ok(res, { message: "You can now list your business", user: user.toPublic() });
+});

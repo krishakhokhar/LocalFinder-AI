@@ -1,33 +1,19 @@
 import Contact from "../models/Contact.js";
+import { created } from "../utils/apiResponse.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
-export const createContact = async (req, res) => {
-  try {
-    const { name, email, message } = req.body;
+export const createContact = asyncHandler(async (req, res) => {
+  const { name, email, subject, message } = req.body;
 
-    if (!name || !email || !message) {
-      return res.status(400).json({
-        success: false,
-        message: "Name, email and message are all required",
-      });
-    }
+  await Contact.create({
+    name,
+    email,
+    subject,
+    message,
+    // Attached when the sender happens to be signed in, so support can see
+    // the account behind a message without asking for it.
+    user: req.user?._id || null,
+  });
 
-    await Contact.create({ name, email, message });
-
-    return res.status(201).json({
-      success: true,
-      message: "Message sent successfully",
-    });
-  } catch (error) {
-    if (error.name === "ValidationError") {
-      const firstError = Object.values(error.errors)[0]?.message;
-      return res.status(400).json({
-        success: false,
-        message: firstError || "Invalid input",
-      });
-    }
-    return res.status(500).json({
-      success: false,
-      message: "Server error, please try again later",
-    });
-  }
-};
+  return created(res, { message: "Message sent successfully" });
+});

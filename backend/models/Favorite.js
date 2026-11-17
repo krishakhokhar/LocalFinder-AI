@@ -8,9 +8,9 @@ const favoriteSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    // Stable identifier for the underlying place (built from name + coordinates
-    // on the frontend) - used to prevent the same user favoriting the same
-    // place twice, regardless of which provider (Overpass/Nominatim) it came from.
+    // Stable identifier for the underlying place - see utils/placeId.js.
+    // The format is unchanged from the original app so favourites saved
+    // before this release keep working.
     placeId: {
       type: String,
       required: [true, "placeId is required"],
@@ -36,8 +36,19 @@ const favoriteSchema = new mongoose.Schema(
     },
     address: { type: String, trim: true },
     phone: { type: String, trim: true },
+    /**
+     * DEPRECATED. Earlier versions wrote a randomly generated rating here.
+     * Nothing writes this field any more and nothing reads it: ratings are
+     * always computed live from the Review collection. The field is kept
+     * only so existing documents remain valid - it is stripped on read.
+     */
     rating: { type: String, trim: true },
     opening_hours: { type: String, trim: true },
+
+    // Set for places registered on LocalFinder, so a favourite can link
+    // straight to the rich business page.
+    business: { type: mongoose.Schema.Types.ObjectId, ref: "Business", default: null },
+    source: { type: String, enum: ["osm", "localfinder"], default: "osm" },
   },
   { timestamps: true }
 );

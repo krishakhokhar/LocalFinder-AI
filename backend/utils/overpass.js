@@ -39,7 +39,10 @@ const OVERPASS_MIRRORS = [
 // that gets automated traffic deprioritized or blocked outright.
 const APP_USER_AGENT = "LocalFinder-AI/1.0 (+https://github.com/krishakhokhar/LocalFinder-AI)";
 
-const PER_MIRROR_TIMEOUT_MS = 6000;
+// Kept tight: a mirror that has not answered in five seconds is almost
+// always unreachable from this network rather than merely busy, and the
+// next mirror is a better bet than waiting longer.
+const PER_MIRROR_TIMEOUT_MS = 5000;
 export const MIN_RADIUS_M = 100;
 export const MAX_RADIUS_M = 20000;
 export const DEFAULT_RADIUS_M = 3000;
@@ -90,9 +93,9 @@ function buildQuery(category, radius, lat, lng) {
   `;
 }
 
-async function fetchFromMirror(url, query) {
+async function fetchFromMirror(url, query, timeoutMs = PER_MIRROR_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PER_MIRROR_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), Math.min(timeoutMs, PER_MIRROR_TIMEOUT_MS));
 
   try {
     const res = await axios.post(url, "data=" + encodeURIComponent(query), {
@@ -141,7 +144,7 @@ async function fetchFromMirror(url, query) {
  * time, which would otherwise multiply worst-case latency by the number
  * of radius tiers.
  */
-export async function tryOverpass(category, radius, lat, lng, preferredMirror = null) {
+export async function tryOverpass(category, radius, lat, lng, preferredMirror = null, deadline = null) {
   const query = buildQuery(category, radius, lat, lng);
   const orderedMirrors = preferredMirror
     ? [preferredMirror, ...OVERPASS_MIRRORS.filter((url) => url !== preferredMirror)]
@@ -149,8 +152,20 @@ export async function tryOverpass(category, radius, lat, lng, preferredMirror = 
 
   const failures = [];
   for (const url of orderedMirrors) {
+    // Stop scanning once the caller's budget is spent. Five mirrors at
+    // six seconds each is thirty seconds before Nominatim is even
+    // tried, which is far longer than anyone waits - and mirrors that
+    // are unreachable from a given network fail by timing out, not by
+    // refusing quickly, so this is the common case rather than the
+    // pathological one.
+    if (deadline && Date.now() >= deadline) {
+      failures.push("(budget exhausted, remaining mirrors skipped)");
+      break;
+    }
+
     try {
-      const data = await fetchFromMirror(url, query);
+      const remaining = deadline ? Math.max(1000, deadline - Date.now()) : undefined;
+      const data = await fetchFromMirror(url, query, remaining);
       return { elements: data.elements, mirrorUsed: url };
     } catch (err) {
       failures.push(`${url} -> ${err.message}`);
@@ -159,4 +174,52 @@ export async function tryOverpass(category, radius, lat, lng, preferredMirror = 
 
   console.warn("[overpass] all mirrors failed:\n  " + failures.join("\n  "));
   return { elements: null, mirrorUsed: null };
+}
+
+// ---------------------------------------------------------------------------
+// Reverse mapping: OSM tags -> the category keys this product uses.
+//
+// Needed because a single filter ("Spa/Gym") can match several OSM values,
+// and because the "all" query returns a mixture. Each result keeps its own
+// real type so a gym is never mislabelled as a spa.
+// ---------------------------------------------------------------------------
+
+const OSM_VALUE_TO_CATEGORY = {
+  hairdresser: "salon",
+  beauty: "salon",
+  plumber: "plumber",
+  electrician: "electrician",
+  restaurant: "restaurant",
+  cafe: "restaurant",
+  fast_food: "restaurant",
+  spa: "spa",
+  fitness_centre: "spa",
+  car_repair: "car",
+  car: "car",
+  hospital: "health",
+  clinic: "health",
+  doctors: "health",
+  pharmacy: "health",
+  bank: "finance",
+  atm: "finance",
+  fuel: "fuel",
+};
+
+/** The raw OSM value that best describes an element (e.g. "fitness_centre"). */
+export function osmTypeFromTags(tags = {}) {
+  return (
+    tags.amenity || tags.craft || tags.shop || tags.leisure || tags.office || tags.healthcare || null
+  );
+}
+
+/** Our category key for an OSM element, or "other" when it maps to nothing. */
+export function categoryFromTags(tags = {}) {
+  const value = osmTypeFromTags(tags);
+  if (!value) return "other";
+  return OSM_VALUE_TO_CATEGORY[value] || "other";
+}
+
+/** Categories that external (OSM) search can actually serve. */
+export function supportsExternalSearch(category) {
+  return VALID_CATEGORIES.includes(category);
 }
