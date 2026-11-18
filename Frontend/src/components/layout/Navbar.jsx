@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import useMotionSafe from "../../hooks/useMotionSafe";
+import { EASE_OUT } from "../../utils/motion";
 import Button from "../common/Button";
 import Avatar from "../common/Avatar";
 import AVAILABLE_ROUTES from "../../config/routes";
@@ -96,7 +97,12 @@ export default function Navbar({ unreadCount = 0 }) {
   ].filter((item) => AVAILABLE_ROUTES.has(item.to));
 
   return (
-    <header
+    // Settles down from above on first paint. `y` only - animating height
+    // or padding here would reflow every page under it.
+    <motion.header
+      initial={reduce ? false : { y: -16, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={reduce ? { duration: 0 } : { duration: 0.4, ease: EASE_OUT }}
       className={`sticky top-0 z-[900] border-b transition-all duration-300 ${
         scrolled
           ? "border-line bg-surface/85 shadow-soft backdrop-blur-xl"
@@ -330,6 +336,6 @@ export default function Navbar({ unreadCount = 0 }) {
           </motion.div>
         ) : null}
       </AnimatePresence>
-    </header>
+    </motion.header>
   );
 }

@@ -6,10 +6,75 @@ import Button from "../common/Button";
 import useMotionSafe from "../../hooks/useMotionSafe";
 import useGeolocation from "../../hooks/useGeolocation";
 import useSearchHistory from "../../hooks/useSearchHistory";
-import { fadeUp, staggerContainer, transitions } from "../../utils/motion";
+import { fadeUp, scaleIn, staggerContainer, transitions } from "../../utils/motion";
 import { categoryConfig } from "../../utils/categories";
 
 const QUICK_CATEGORIES = ["salon", "restaurant", "spa", "shopping", "electrician", "car"];
+
+const HEADLINE = [
+  { text: "Discover local." },
+  { text: "Compare smart.", accent: true, break: true },
+  { text: "Choose better." },
+];
+
+/**
+ * Ambient cards that drift behind the hero.
+ *
+ * These show category names and a pin - never a business name, rating or
+ * price. Inventing a plausible-looking listing here would be fabricated
+ * business data sitting on the landing page, which is exactly what the
+ * product promises not to do.
+ */
+// Distinct durations and drifts so the group never pulses in unison -
+// synchronised floating reads as a single mechanical animation.
+const FLOATERS = [
+  { key: "salon", className: "left-[3%] top-[20%] lg:left-[6%]", delay: 0, drift: 12, duration: 6.5 },
+  { key: "restaurant", className: "right-[3%] top-[15%] lg:right-[7%]", delay: 0.6, drift: -14, duration: 8.2 },
+  { key: "health", className: "left-[5%] bottom-[14%] lg:left-[11%]", delay: 1.1, drift: -10, duration: 7.4 },
+  { key: "shopping", className: "right-[5%] bottom-[18%] lg:right-[9%]", delay: 0.3, drift: 13, duration: 9.1 },
+];
+
+function FloatingCards({ reduce }) {
+  // Shown from lg up. Below that the hero is a single column and floating
+  // cards would sit on top of the search box.
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 hidden lg:block">
+      {FLOATERS.map((item) => {
+        const config = categoryConfig(item.key);
+        const Icon = config.icon;
+        return (
+          <motion.div
+            key={item.key}
+            className={`absolute ${item.className}`}
+            initial={reduce ? false : { opacity: 0, y: 18, scale: 0.9 }}
+            animate={
+              reduce
+                ? { opacity: 1 }
+                : { opacity: 1, y: [0, item.drift, 0], rotate: [0, item.drift > 0 ? 1.5 : -1.5, 0], scale: 1 }
+            }
+            transition={
+              reduce
+                ? { duration: 0 }
+                : {
+                    opacity: { duration: 0.5, delay: 0.4 + item.delay },
+                    scale: { duration: 0.5, delay: 0.4 + item.delay },
+                    y: { duration: item.duration, repeat: Infinity, ease: "easeInOut", delay: item.delay },
+                    rotate: { duration: item.duration, repeat: Infinity, ease: "easeInOut", delay: item.delay },
+                  }
+            }
+          >
+            <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-surface/90 px-3.5 py-2.5 shadow-lift backdrop-blur">
+              <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${config.tint}`}>
+                <Icon className="h-4 w-4" aria-hidden="true" />
+              </span>
+              <span className="text-xs font-bold text-ink">{config.label}</span>
+            </div>
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+}
 
 /**
  * Above the fold: one sentence of positioning, one search box, and a row
@@ -40,8 +105,18 @@ export default function Hero() {
       {/* Restrained ambience: two soft washes and a grid, nothing that
           competes with the content. */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-brand-100/60 blur-3xl" />
-        <div className="absolute -right-20 top-20 h-80 w-80 rounded-full bg-ai-100/50 blur-3xl" />
+        {/* Two slow, offset drifts. Transform and opacity only, so this
+            stays on the compositor and never reflows the page. */}
+        <motion.div
+          className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-brand-100/60 blur-3xl"
+          animate={reduce ? undefined : { x: [0, 26, 0], y: [0, 18, 0], opacity: [0.6, 0.85, 0.6] }}
+          transition={reduce ? undefined : { duration: 14, repeat: Infinity, ease: "easeInOut" }}
+        />
+        <motion.div
+          className="absolute -right-20 top-20 h-80 w-80 rounded-full bg-ai-100/50 blur-3xl"
+          animate={reduce ? undefined : { x: [0, -22, 0], y: [0, 24, 0], opacity: [0.5, 0.8, 0.5] }}
+          transition={reduce ? undefined : { duration: 18, repeat: Infinity, ease: "easeInOut", delay: 1.5 }}
+        />
         <div
           className="absolute inset-0 opacity-[0.35]"
           style={{
@@ -54,34 +129,53 @@ export default function Hero() {
         />
       </div>
 
+      <FloatingCards reduce={reduce} />
+
       <motion.div
         variants={variants(staggerContainer(0.08, 0.05))}
         initial="hidden"
         animate="visible"
         className="lf-container relative py-16 text-center sm:py-24"
       >
-        <motion.div variants={variants(fadeUp)}>
+        <motion.div variants={variants(scaleIn)}>
           <span className="inline-flex items-center gap-2 rounded-full border border-ai-200 bg-ai-50 px-3.5 py-1.5 text-xs font-semibold text-ai-700">
-            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            <motion.span
+              animate={reduce ? undefined : { rotate: [0, 12, -8, 0], scale: [1, 1.15, 1] }}
+              transition={
+                reduce ? undefined : { duration: 2.4, repeat: Infinity, repeatDelay: 3, ease: "easeInOut" }
+              }
+              className="inline-flex"
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+            </motion.span>
             AI-powered local discovery
           </span>
         </motion.div>
 
+        {/* Phrase-by-phrase entrance. Split on phrases rather than single
+            words so the line still reads as a sentence while it lands, and
+            kept as one <h1> so assistive tech sees one heading. */}
         <motion.h1
-          variants={variants(fadeUp)}
+          variants={variants(staggerContainer(0.08))}
           className="mx-auto mt-6 max-w-3xl font-display text-[2rem] font-extrabold leading-[1.1] tracking-tight text-ink sm:text-5xl lg:text-[3.4rem]"
         >
-          Discover local.{" "}
-          <span className="text-brand-600">Compare smart.</span>
-          <br className="hidden sm:block" /> Choose better.
+          {HEADLINE.map((phrase) => (
+            <motion.span
+              key={phrase.text}
+              variants={variants(fadeUp)}
+              className={`inline-block ${phrase.accent ? "text-brand-600" : ""}`}
+            >
+              {phrase.text}
+              {phrase.break ? <br className="hidden sm:block" /> : " "}
+            </motion.span>
+          ))}
         </motion.h1>
 
         <motion.p
           variants={variants(fadeUp)}
           className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-ink-muted sm:text-lg"
         >
-          Find real businesses around you, compare them on genuine reviews and prices, and book an
-          appointment — all in one place.
+          Find trusted businesses, discover hidden places and explore everything around you with AI.
         </motion.p>
 
         {/* Search */}
@@ -111,19 +205,28 @@ export default function Hero() {
         </motion.form>
 
         <motion.div variants={variants(fadeUp)} className="mt-3">
-          <button
+          <motion.button
             type="button"
             onClick={useMyLocation}
             disabled={isLocating}
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 transition-colors hover:text-brand-800 disabled:opacity-60"
+            whileHover={reduce || isLocating ? undefined : { y: -2 }}
+            whileTap={reduce || isLocating ? undefined : { scale: 0.97 }}
+            transition={transitions.snappy}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-semibold text-brand-700 transition-colors hover:text-brand-800 disabled:opacity-60"
           >
             {isLocating ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
-              <MapPin className="h-4 w-4" aria-hidden="true" />
+              <motion.span
+                animate={reduce ? undefined : { y: [0, -2.5, 0] }}
+                transition={reduce ? undefined : { duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                className="inline-flex"
+              >
+                <MapPin className="h-4 w-4" aria-hidden="true" />
+              </motion.span>
             )}
             {isLocating ? "Finding you…" : "Use my current location"}
-          </button>
+          </motion.button>
         </motion.div>
 
         {/* Category shortcuts */}

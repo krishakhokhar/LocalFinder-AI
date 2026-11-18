@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { toast } from "react-toastify";
 import {
   ArrowRight,
@@ -18,8 +18,9 @@ import {
 import AppShell from "../components/layout/AppShell";
 import Button from "../components/common/Button";
 import { Input } from "../components/common/Field";
+import AuthScene from "../components/graphics/AuthScene";
 import useMotionSafe from "../hooks/useMotionSafe";
-import { fadeUp, staggerContainer } from "../utils/motion";
+import { fadeUp, scaleIn, staggerContainer } from "../utils/motion";
 import { useAuth } from "../context/AuthContext";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -33,18 +34,50 @@ function passwordChecks(password) {
   ];
 }
 
-const HIGHLIGHTS = [
-  "Save places and come back to them on any device",
-  "Write reviews that other people actually rely on",
-  "Book appointments and track them in one place",
-];
+/**
+ * The side panel speaks to what the person is actually here to do, so the
+ * three intents get three different scenes, headings and promises rather
+ * than one generic marketing block.
+ */
+const PANELS = {
+  login: {
+    scene: "discover",
+    eyebrow: "AI-powered local discovery",
+    heading: "Discover local. Compare smart. Choose better.",
+    highlights: [
+      "Save places and come back to them on any device",
+      "Write reviews that other people actually rely on",
+      "Book appointments and track them in one place",
+    ],
+  },
+  customer: {
+    scene: "community",
+    eyebrow: "Join your neighbourhood",
+    heading: "Everything around you, in one place.",
+    highlights: [
+      "Find trusted places near you, not three cities away",
+      "Compare real prices and opening hours side by side",
+      "Keep your favourites and bookings together",
+    ],
+  },
+  owner: {
+    scene: "grow",
+    eyebrow: "For business owners",
+    heading: "Grow your business with LocalFinder-AI.",
+    highlights: [
+      "List your services and prices the way you want them seen",
+      "Take appointments without the back-and-forth",
+      "Earn a verified badge once our team approves your listing",
+    ],
+  },
+};
 
 export default function Auth() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { login, register, isAuthenticated } = useAuth();
-  const { variants } = useMotionSafe();
+  const { variants, reduce } = useMotionSafe();
 
   const [mode, setMode] = useState(() => (searchParams.get("mode") === "register" ? "register" : "login"));
   const [asOwner, setAsOwner] = useState(() => searchParams.get("role") === "owner");
@@ -61,6 +94,10 @@ export default function Auth() {
 
   const checks = useMemo(() => passwordChecks(form.password), [form.password]);
   const isRegister = mode === "register";
+
+  // Signing in, signing up as a customer and signing up as an owner are
+  // three different intents, so the side panel follows the one in play.
+  const panel = PANELS[isRegister ? (asOwner ? "owner" : "customer") : "login"];
 
   const update = (field) => (event) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
@@ -320,7 +357,7 @@ export default function Auth() {
           </motion.div>
         </div>
 
-        {/* Side panel */}
+        {/* Side panel - changes with what the person came here to do */}
         <aside className="relative hidden overflow-hidden bg-ink lg:block">
           <div aria-hidden="true" className="absolute inset-0">
             <div className="absolute -left-20 top-1/4 h-80 w-80 rounded-full bg-brand-600/25 blur-3xl" />
@@ -328,25 +365,51 @@ export default function Auth() {
           </div>
 
           <div className="relative flex h-full flex-col justify-center px-14">
-            <span className="inline-flex w-fit items-center gap-2 rounded-full bg-white/10 px-3.5 py-1.5 text-xs font-semibold text-brand-200">
-              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-              AI-powered local discovery
-            </span>
+            {/* `key` restarts the scene when the intent changes, so the
+                artwork animates in rather than swapping silently. */}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={panel.scene}
+                variants={variants(staggerContainer(0.07))}
+                initial="hidden"
+                animate="visible"
+                exit={reduce ? undefined : { opacity: 0, transition: { duration: 0.15 } }}
+              >
+                <motion.div variants={variants(scaleIn)} className="mb-8 max-w-md">
+                  <AuthScene variant={panel.scene} />
+                </motion.div>
 
-            <h2 className="mt-6 max-w-sm font-display text-3xl font-extrabold leading-tight text-white">
-              Discover local. Compare smart. Choose better.
-            </h2>
+                <motion.span
+                  variants={variants(fadeUp)}
+                  className="inline-flex w-fit items-center gap-2 rounded-full bg-white/10 px-3.5 py-1.5 text-xs font-semibold text-brand-200"
+                >
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  {panel.eyebrow}
+                </motion.span>
 
-            <ul className="mt-8 space-y-4">
-              {HIGHLIGHTS.map((item) => (
-                <li key={item} className="flex items-start gap-3 text-sm text-slate-300">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success-500/20">
-                    <Check className="h-3 w-3 text-success-500" aria-hidden="true" />
-                  </span>
-                  {item}
-                </li>
-              ))}
-            </ul>
+                <motion.h2
+                  variants={variants(fadeUp)}
+                  className="mt-6 max-w-sm font-display text-3xl font-extrabold leading-tight text-white"
+                >
+                  {panel.heading}
+                </motion.h2>
+
+                <motion.ul variants={variants(staggerContainer(0.06))} className="mt-8 space-y-4">
+                  {panel.highlights.map((item) => (
+                    <motion.li
+                      key={item}
+                      variants={variants(fadeUp)}
+                      className="flex items-start gap-3 text-sm text-slate-300"
+                    >
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success-500/20">
+                        <Check className="h-3 w-3 text-success-500" aria-hidden="true" />
+                      </span>
+                      {item}
+                    </motion.li>
+                  ))}
+                </motion.ul>
+              </motion.div>
+            </AnimatePresence>
 
             <div className="mt-10 flex items-center gap-2 text-xs text-slate-400">
               <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
