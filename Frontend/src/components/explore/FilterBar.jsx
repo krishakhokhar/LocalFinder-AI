@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowDownWideNarrow, Clock, RotateCcw, SlidersHorizontal, Star } from "lucide-react";
+import { ArrowDownWideNarrow, Clock, RotateCcw, SlidersHorizontal, Star, X } from "lucide-react";
 import useMotionSafe from "../../hooks/useMotionSafe";
 import { categoryConfig } from "../../utils/categories";
 
@@ -14,14 +14,22 @@ export const RADIUS_OPTIONS = [
 export const SORT_OPTIONS = [
   { value: "distance", label: "Nearest first" },
   { value: "rating", label: "Highest rated" },
+  { value: "reviews", label: "Most reviewed" },
+  { value: "price", label: "Lowest price" },
   { value: "relevance", label: "Best match" },
 ];
 
-const RATING_OPTIONS = [
+export const RATING_OPTIONS = [
   { value: 0, label: "Any rating" },
   { value: 3, label: "3.0+" },
   { value: 4, label: "4.0+" },
   { value: 4.5, label: "4.5+" },
+];
+
+export const SOURCE_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "registered", label: "LocalFinder" },
+  { value: "osm", label: "Map data" },
 ];
 
 /**
@@ -39,12 +47,41 @@ export default function FilterBar({ filters, categories, onChange, onReset, resu
 
   const set = (patch) => onChange({ ...filters, ...patch, page: 1 });
 
-  const activeCount =
-    (filters.openNow ? 1 : 0) +
-    (filters.minRating > 0 ? 1 : 0) +
-    (filters.maxPrice ? 1 : 0) +
-    (filters.radius !== 3000 ? 1 : 0) +
-    (filters.sort !== "distance" ? 1 : 0);
+  /**
+   * One description per active filter, each able to clear just itself.
+   * Derived from state rather than tracked separately, so a chip can never
+   * disagree with the filter it represents.
+   */
+  const activeChips = [
+    filters.radius !== 3000 && {
+      key: "radius",
+      label: `Within ${(filters.radius / 1000).toFixed(0)} km`,
+      clear: { radius: 3000 },
+    },
+    filters.sort !== "distance" && {
+      key: "sort",
+      label: SORT_OPTIONS.find((option) => option.value === filters.sort)?.label || filters.sort,
+      clear: { sort: "distance" },
+    },
+    filters.openNow && { key: "openNow", label: "Open now", clear: { openNow: false } },
+    filters.minRating > 0 && {
+      key: "minRating",
+      label: `${filters.minRating.toFixed(1)}+ rating`,
+      clear: { minRating: 0 },
+    },
+    filters.maxPrice ? {
+      key: "maxPrice",
+      label: `Up to ₹${filters.maxPrice}`,
+      clear: { maxPrice: null },
+    } : null,
+    filters.source !== "all" && {
+      key: "source",
+      label: SOURCE_OPTIONS.find((option) => option.value === filters.source)?.label || filters.source,
+      clear: { source: "all" },
+    },
+  ].filter(Boolean);
+
+  const activeCount = activeChips.length;
 
   return (
     <div className="border-b border-line bg-surface">
@@ -166,6 +203,24 @@ export default function FilterBar({ filters, categories, onChange, onReset, resu
           </span>
         </div>
 
+        {/* Active filters, each removable on its own. */}
+        {activeChips.length > 0 ? (
+          <div className="lf-container flex flex-wrap items-center gap-1.5 pb-2.5">
+            {activeChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() => set(chip.clear)}
+                className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-brand-50 py-1 pl-2.5 pr-1.5 text-2xs font-semibold text-brand-700 transition-colors hover:bg-brand-100"
+              >
+                {chip.label}
+                <X className="h-3 w-3" aria-hidden="true" />
+                <span className="sr-only">Remove filter</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <AnimatePresence initial={false}>
           {advancedOpen ? (
             <motion.div
@@ -236,20 +291,26 @@ export default function FilterBar({ filters, categories, onChange, onReset, resu
 
                 <div>
                   <p className="mb-2 text-xs font-bold text-ink-soft">Source</p>
-                  <button
-                    type="button"
-                    onClick={() => set({ includeExternal: !filters.includeExternal })}
-                    aria-pressed={!filters.includeExternal}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      filters.includeExternal
-                        ? "border-line bg-surface text-ink-muted hover:bg-slate-100"
-                        : "border-brand-600 bg-brand-600 text-white"
-                    }`}
-                  >
-                    Registered businesses only
-                  </button>
+                  <div className="flex flex-wrap gap-1.5">
+                    {SOURCE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => set({ source: option.value })}
+                        aria-pressed={filters.source === option.value}
+                        className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                          filters.source === option.value
+                            ? "border-brand-600 bg-brand-600 text-white"
+                            : "border-line bg-surface text-ink-muted hover:bg-slate-100"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                   <p className="mt-1.5 text-2xs text-ink-faint">
-                    Hides OpenStreetMap places and shows only businesses listed with LocalFinder.
+                    “LocalFinder” shows only registered businesses; “Map data” shows only
+                    OpenStreetMap places.
                   </p>
                 </div>
               </div>

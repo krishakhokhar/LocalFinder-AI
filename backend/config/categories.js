@@ -13,7 +13,7 @@ export const BUILT_IN_CATEGORIES = [
   { key: "salon", label: "Salon & Beauty", icon: "scissors", order: 10, description: "Haircuts, beauty parlours, grooming" },
   { key: "restaurant", label: "Food & Dining", icon: "utensils", order: 20, description: "Restaurants, cafes and takeaways" },
   { key: "spa", label: "Spa & Gym", icon: "dumbbell", order: 30, description: "Fitness centres, spas and wellness" },
-  { key: "plumber", label: "Plumber", icon: "wrench", order: 40, description: "Plumbing and pipe repair" },
+  { key: "shopping", label: "Shopping & Essentials", icon: "shopping-cart", order: 40, description: "Supermarkets, grocery, malls and daily needs" },
   { key: "electrician", label: "Electrician", icon: "zap", order: 50, description: "Wiring, fittings and electrical repair" },
   { key: "car", label: "Car Service", icon: "car", order: 60, description: "Garages, servicing and repair" },
   { key: "health", label: "Health", icon: "stethoscope", order: 70, description: "Clinics, hospitals and pharmacies" },

@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   Pill,
   Scissors,
+  ShoppingCart,
   Sparkles,
   Stethoscope,
   Store,
@@ -30,19 +31,36 @@ const CONFIG = {
   salon: { icon: Scissors, label: "Salon", tint: "bg-pink-50 text-pink-600", pin: "#EC4899" },
   hairdresser: { icon: Scissors, label: "Hair Salon", tint: "bg-pink-50 text-pink-600", pin: "#EC4899" },
   beauty: { icon: Sparkles, label: "Beauty", tint: "bg-pink-50 text-pink-600", pin: "#EC4899" },
+  beauty_salon: { icon: Sparkles, label: "Beauty Salon", tint: "bg-pink-50 text-pink-600", pin: "#EC4899" },
 
   restaurant: { icon: UtensilsCrossed, label: "Restaurant", tint: "bg-orange-50 text-orange-600", pin: "#F97316" },
   cafe: { icon: Coffee, label: "Cafe", tint: "bg-amber-50 text-amber-700", pin: "#D97706" },
   fast_food: { icon: UtensilsCrossed, label: "Fast Food", tint: "bg-orange-50 text-orange-600", pin: "#F97316" },
+  food_court: { icon: UtensilsCrossed, label: "Food Court", tint: "bg-orange-50 text-orange-600", pin: "#F97316" },
 
   spa: { icon: Sparkles, label: "Spa", tint: "bg-ai-50 text-ai-600", pin: "#8B5CF6" },
   fitness_centre: { icon: Dumbbell, label: "Gym", tint: "bg-ai-50 text-ai-600", pin: "#7C3AED" },
+  sports_centre: { icon: Dumbbell, label: "Sports Centre", tint: "bg-ai-50 text-ai-600", pin: "#7C3AED" },
+  fitness_station: { icon: Dumbbell, label: "Fitness Station", tint: "bg-ai-50 text-ai-600", pin: "#7C3AED" },
+  massage: { icon: Sparkles, label: "Massage", tint: "bg-ai-50 text-ai-600", pin: "#8B5CF6" },
 
-  plumber: { icon: Wrench, label: "Plumber", tint: "bg-warning-50 text-warning-700", pin: "#F59E0B" },
+  shopping: { icon: ShoppingCart, label: "Shopping", tint: "bg-warning-50 text-warning-700", pin: "#F59E0B" },
+  supermarket: { icon: ShoppingCart, label: "Supermarket", tint: "bg-warning-50 text-warning-700", pin: "#F59E0B" },
+  convenience: { icon: ShoppingCart, label: "Convenience Store", tint: "bg-warning-50 text-warning-700", pin: "#F59E0B" },
+  department_store: { icon: Store, label: "Department Store", tint: "bg-warning-50 text-warning-700", pin: "#EA580C" },
+  mall: { icon: Store, label: "Shopping Mall", tint: "bg-warning-50 text-warning-700", pin: "#EA580C" },
+  general: { icon: Store, label: "General Store", tint: "bg-warning-50 text-warning-700", pin: "#F59E0B" },
+  greengrocer: { icon: ShoppingCart, label: "Greengrocer", tint: "bg-success-50 text-success-700", pin: "#16A34A" },
+  marketplace: { icon: Store, label: "Market", tint: "bg-warning-50 text-warning-700", pin: "#EA580C" },
+
   electrician: { icon: Zap, label: "Electrician", tint: "bg-brand-50 text-brand-700", pin: "#2563EB" },
+  electrical: { icon: Zap, label: "Electrical", tint: "bg-brand-50 text-brand-700", pin: "#2563EB" },
 
   car: { icon: Car, label: "Car Service", tint: "bg-success-50 text-success-700", pin: "#10B981" },
   car_repair: { icon: Car, label: "Car Repair", tint: "bg-success-50 text-success-700", pin: "#10B981" },
+  car_parts: { icon: Car, label: "Car Parts", tint: "bg-success-50 text-success-700", pin: "#10B981" },
+  car_wash: { icon: Car, label: "Car Wash", tint: "bg-success-50 text-success-700", pin: "#10B981" },
+  tyres: { icon: Car, label: "Tyres", tint: "bg-success-50 text-success-700", pin: "#10B981" },
 
   health: { icon: Stethoscope, label: "Health", tint: "bg-danger-50 text-danger-600", pin: "#EF4444" },
   hospital: { icon: Stethoscope, label: "Hospital", tint: "bg-danger-50 text-danger-600", pin: "#EF4444" },
@@ -90,6 +108,9 @@ const PIN_SVG = {
   fuel: SVG_WRAP('<path d="M3 21h10V3H3v18Zm10-9h3a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2"/>'),
   store: SVG_WRAP('<path d="M4 9h16v11H4V9Zm0 0 1.5-5h13L20 9M9 20v-6h6v6"/>'),
   sparkles: SVG_WRAP('<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/>'),
+  cart: SVG_WRAP(
+    '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.7 11.4a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 7H6"/>'
+  ),
 };
 
 const SVG_FOR_CATEGORY = {
@@ -101,7 +122,14 @@ const SVG_FOR_CATEGORY = {
   fast_food: "utensils",
   spa: "sparkles",
   fitness_centre: "dumbbell",
-  plumber: "wrench",
+  shopping: "cart",
+  supermarket: "cart",
+  convenience: "cart",
+  greengrocer: "cart",
+  department_store: "store",
+  mall: "store",
+  general: "store",
+  marketplace: "store",
   electrician: "zap",
   car: "car",
   car_repair: "car",
@@ -127,6 +155,7 @@ const ICON_BY_NAME = {
   utensils: UtensilsCrossed,
   dumbbell: Dumbbell,
   wrench: Wrench,
+  "shopping-cart": ShoppingCart,
   zap: Zap,
   car: Car,
   stethoscope: Stethoscope,

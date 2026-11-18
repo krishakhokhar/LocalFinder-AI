@@ -119,6 +119,21 @@ export default function MarkerCluster({ places = [], selectedId = null, onSelect
       if (layer.addLayers) layer.addLayers(added);
       else added.forEach((marker) => layer.addLayer(marker));
     }
+
+    if (import.meta.env.DEV) {
+      const byCategory = {};
+      for (const place of places) {
+        const key = displayType(place) || "unknown";
+        byCategory[key] = (byCategory[key] || 0) + 1;
+      }
+      // Markers are built from exactly the array the list renders, so these
+      // counts must always agree with the sidebar. If they ever diverge,
+      // the two views have been fed different data.
+      console.debug(
+        `[markers] rendering ${markersRef.current.size} pins for ${places.length} results`,
+        byCategory
+      );
+    }
   }, [places, onSelect, selectedId]);
 
   // Restyle only the markers whose selected state actually changed.

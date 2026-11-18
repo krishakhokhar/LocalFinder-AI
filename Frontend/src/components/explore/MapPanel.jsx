@@ -4,6 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Crosshair, Layers, Navigation, Search } from "lucide-react";
 import MarkerCluster from "./MarkerCluster";
+import { basemapFor, hasCartoKey, nextBasemap, warnIfCartoKeyMissing } from "../../config/basemaps";
 import { displayType } from "../../utils/categories";
 import { directionsUrl, formatCategory, formatDistance, formatRating } from "../../utils/format";
 
@@ -16,7 +17,15 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
-const FALLBACK_CENTER = [23.0225, 72.5714]; // Ahmedabad
+// Reported once at module load rather than on every render.
+warnIfCartoKeyMissing();
+
+// No hardcoded city. Opening the map on a specific place implies the user
+// is there, which is a claim we cannot make until geolocation succeeds.
+// Until then the map shows a deliberately neutral world view.
+const NEUTRAL_CENTER = [20, 0];
+const NEUTRAL_ZOOM = 2;
+const LOCATED_ZOOM = 15;
 
 const userIcon = L.divIcon({
   className: "",
@@ -68,6 +77,37 @@ function AreaWatcher({ origin, onMoved }) {
   return null;
 }
 
+/**
+ * Centres the map when the detected location arrives.
+ *
+ * This is load-bearing: react-leaflet reads MapContainer's `center` and
+ * `zoom` once, at mount, and ignores every later change. Geolocation almost
+ * always resolves *after* that first render, so without this the view stays
+ * wherever it started no matter what the browser reports.
+ */
+function FollowLocation({ location }) {
+  const map = useMap();
+  const last = useRef("");
+
+  useEffect(() => {
+    if (!location) return;
+    const key = `${location.lat},${location.lng}`;
+    if (key === last.current) return;
+    last.current = key;
+
+    if (import.meta.env.DEV) {
+      console.debug("[map] centering on detected location", {
+        lat: location.lat,
+        lng: location.lng,
+        accuracy: location.accuracy ?? null,
+      });
+    }
+    map.flyTo([location.lat, location.lng], Math.max(map.getZoom(), LOCATED_ZOOM), { duration: 0.8 });
+  }, [location, map]);
+
+  return null;
+}
+
 /** Exposes the Leaflet instance to the parent, for the recentre control. */
 function MapRef({ onReady }) {
   const map = useMap();
@@ -86,13 +126,20 @@ export default function MapPanel({
   radius = 3000,
   onSearchArea,
   showRadius = true,
+  locating = false,
+  locationBlocked = false,
   className = "",
 }) {
   const [mapInstance, setMapInstance] = useState(null);
   const [pendingArea, setPendingArea] = useState(null);
-  const [basemap, setBasemap] = useState("standard");
+  // Full-colour Voyager cartography by default. The Layers button cycles
+  // through colour -> light grey -> standard OSM.
+  const [basemap, setBasemap] = useState("voyager");
 
-  const center = focusPosition || (userLocation ? [userLocation.lat, userLocation.lng] : FALLBACK_CENTER);
+  // Mount-time view only - FollowLocation/PanTo own every later move.
+  const located = focusPosition || (userLocation ? [userLocation.lat, userLocation.lng] : null);
+  const initialCenter = located || NEUTRAL_CENTER;
+  const initialZoom = located ? LOCATED_ZOOM : NEUTRAL_ZOOM;
 
   const handleMoved = useCallback((info) => {
     setPendingArea(info.moved ? info : null);
@@ -110,34 +157,34 @@ export default function MapPanel({
     setPendingArea(null);
   };
 
-  const tiles =
-    basemap === "standard"
-      ? {
-          url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        }
-      : {
-          url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        };
+  // Falls back to standard OSM tiles when no CARTO key is configured, so a
+  // missing key degrades to a plain map rather than a watermarked one.
+  const tiles = basemapFor(basemap);
 
   return (
     <div className={`relative h-full w-full ${className}`}>
       <MapContainer
-        center={center}
-        zoom={14}
+        center={initialCenter}
+        zoom={initialZoom}
         scrollWheelZoom
         zoomControl={false}
         className="h-full w-full"
         style={{ background: "#eef2f7" }}
       >
         <MapRef onReady={setMapInstance} />
+        <FollowLocation location={userLocation} />
         <PanTo center={focusPosition} zoom={focusPosition ? 16 : undefined} />
         <AreaWatcher origin={userLocation} onMoved={handleMoved} />
 
-        <TileLayer url={tiles.url} attribution={tiles.attribution} />
+        {/* `key` forces a fresh layer when the basemap changes - Leaflet
+            caches tiles per layer instance and would otherwise keep showing
+            the previous source's tiles until they are panned out of view. */}
+        <TileLayer
+          key={tiles.id}
+          url={tiles.url}
+          attribution={tiles.attribution}
+          maxZoom={tiles.maxZoom}
+        />
 
         {userLocation ? (
           <>
@@ -238,6 +285,36 @@ export default function MapPanel({
         <style>{`.leaflet-control-attribution{font-size:10px;background:rgba(255,255,255,.85)!important}`}</style>
       </MapContainer>
 
+      {/* While no real position is known the map sits on a neutral world
+          view, so say why rather than leaving an unexplained globe. */}
+      {!userLocation ? (
+        <div className="pointer-events-none absolute inset-0 z-[600] flex items-center justify-center p-4">
+          <div className="pointer-events-auto max-w-xs rounded-card border border-line bg-surface/95 px-4 py-3 text-center shadow-lift backdrop-blur">
+            {locating ? (
+              <>
+                <Crosshair className="mx-auto h-5 w-5 animate-pulse text-brand-600" aria-hidden="true" />
+                <p className="mt-1.5 font-display text-sm font-bold text-ink">Detecting your location…</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">
+                  Allow access when your browser asks.
+                </p>
+              </>
+            ) : (
+              <>
+                <Crosshair className="mx-auto h-5 w-5 text-ink-faint" aria-hidden="true" />
+                <p className="mt-1.5 font-display text-sm font-bold text-ink">
+                  {locationBlocked ? "Location is blocked" : "No location set"}
+                </p>
+                <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">
+                  {locationBlocked
+                    ? "Enable location in your browser, or zoom to your area and press “Search this area”."
+                    : "Use “My location”, or zoom to your area and press “Search this area”."}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {/* Floating controls, kept clear of the Leaflet attribution. */}
       <div className="pointer-events-none absolute inset-0 z-[500]">
         {pendingArea && onSearchArea ? (
@@ -282,10 +359,15 @@ export default function MapPanel({
           </button>
           <button
             type="button"
-            onClick={() => setBasemap((current) => (current === "standard" ? "light" : "standard"))}
+            onClick={() => setBasemap((current) => nextBasemap(current))}
+            disabled={!hasCartoKey}
             aria-label="Switch map style"
-            title="Switch map style"
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-surface text-ink-soft shadow-soft transition-colors hover:bg-slate-50"
+            title={
+              hasCartoKey
+                ? `Map style: ${tiles.label} - click to change`
+                : "Only the standard map is available - no CARTO API key is configured"
+            }
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-surface text-ink-soft shadow-soft transition-colors hover:bg-slate-50 disabled:opacity-40"
           >
             <Layers className="h-4 w-4" aria-hidden="true" />
           </button>

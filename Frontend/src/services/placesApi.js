@@ -5,7 +5,7 @@ import api from "./apiClient";
  * can evaluate opening hours in the user's local time rather than its own.
  */
 export const placesApi = {
-  nearby: ({ lat, lng, category = "all", radius = 3000, q = "", openNow, minRating, maxPrice, sort = "distance", page = 1, limit = 20, includeExternal }, options) =>
+  nearby: ({ lat, lng, category = "all", radius = 3000, q = "", openNow, minRating, maxPrice, sort = "distance", page = 1, limit = 20, source = "all", autoExpand }, options) =>
     api.get("/api/services/nearby", {
       ...options,
       params: {
@@ -14,13 +14,15 @@ export const placesApi = {
         category,
         radius,
         q,
+        // Only ever sent when the user accepted the "search wider" offer.
+        autoExpand: autoExpand ? "true" : undefined,
         openNow: openNow ? "true" : undefined,
         minRating: minRating || undefined,
         maxPrice: maxPrice ?? undefined,
         sort,
         page,
         limit,
-        includeExternal: includeExternal === false ? "false" : undefined,
+        source: source && source !== "all" ? source : undefined,
         tz: -new Date().getTimezoneOffset(),
       },
     }),

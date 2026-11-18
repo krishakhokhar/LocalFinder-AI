@@ -11,7 +11,7 @@ const CATEGORIES = [
   { key: "salon", blurb: "Haircuts, grooming and beauty parlours" },
   { key: "restaurant", blurb: "Restaurants, cafés and takeaways" },
   { key: "spa", blurb: "Gyms, fitness studios and wellness" },
-  { key: "plumber", blurb: "Leaks, fittings and pipe repair" },
+  { key: "shopping", blurb: "Supermarkets, grocery and daily needs" },
   { key: "electrician", blurb: "Wiring, repairs and installation" },
   { key: "car", blurb: "Servicing, repairs and garages" },
   { key: "health", blurb: "Clinics, hospitals and pharmacies" },

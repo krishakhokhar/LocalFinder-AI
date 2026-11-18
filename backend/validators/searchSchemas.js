@@ -40,13 +40,21 @@ export const nearbySearchSchema = z.object({
   openNow: boolish,
   minRating: numeric(z.number().min(0).max(5)).optional().default(0),
   maxPrice: numeric(z.number().min(0).max(10000000)).optional(),
-  sort: z.enum(["distance", "rating", "relevance"]).optional().default("distance"),
+  sort: z
+    .enum(["distance", "rating", "relevance", "price", "reviews"])
+    .optional()
+    .default("distance"),
+  // Which dataset to draw from. `includeExternal=false` is the older way of
+  // saying `source=registered` and still works.
+  source: z.enum(["all", "registered", "osm"]).optional().default("all"),
   page: numeric(z.number().int().min(1).max(100)).optional().default(1),
   limit: numeric(z.number().int().min(1).max(50)).optional().default(20),
   // Minutes east of UTC, as the browser knows it. Used to evaluate opening
   // hours in the viewer's local time rather than the server's.
   tz: numeric(z.number().int().min(-840).max(840)).optional().default(0),
   includeExternal: boolish,
+  // Explicit consent to widen past the requested radius.
+  autoExpand: boolish,
 });
 
 export const objectIdSchema = z

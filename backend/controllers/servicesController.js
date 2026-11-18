@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import Category from "../models/Category.js";
 import { searchPlaces } from "../services/placeSearchService.js";
-import { VALID_CATEGORIES } from "../utils/overpass.js";
+import { VALID_CATEGORIES, mirrorHealthSnapshot } from "../utils/overpass.js";
 import { BUILT_IN_CATEGORIES } from "../config/categories.js";
 import { ok } from "../utils/apiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -36,6 +36,10 @@ export const getNearbyServices = asyncHandler(async (req, res) => {
     limit: query.limit,
     tzOffsetMinutes: query.tz,
     includeExternal: query.includeExternal !== false,
+    source: query.source || "all",
+    // Opt-in only: the UI asks for a wider search when the user accepts
+    // the offer, so the radius never changes behind their back.
+    autoExpand: query.autoExpand === true,
   });
 
   // Fire-and-forget: analytics must never slow down or break a search.
@@ -56,9 +60,36 @@ export const getNearbyServices = asyncHandler(async (req, res) => {
     provider: outcome.provider,
     registeredCount: outcome.registeredCount,
     externalCount: outcome.externalCount,
+    suggestedRadius: outcome.suggestedRadius,
+    hiddenByOpenNow: outcome.hiddenByOpenNow,
+    hiddenByRating: outcome.hiddenByRating,
+    hiddenByPrice: outcome.hiddenByPrice,
+    unknownHoursCount: outcome.unknownHoursCount,
+    ratedCount: outcome.ratedCount,
+    pricedCount: outcome.pricedCount,
+    source: outcome.source,
     attribution: outcome.attribution,
     ...(outcome.degraded ? { degraded: true, message: outcome.message } : {}),
     ...(outcome.timedOut ? { timedOut: true, message: outcome.message } : {}),
+  });
+});
+
+/**
+ * GET /api/services/diagnostics
+ *
+ * Which Overpass mirrors are currently usable from this server, and how
+ * fast each last responded. Read-only and secret-free: it exists because
+ * "the Explore page shows nothing" and "every mirror is benched" look
+ * identical from the browser, and telling them apart used to require
+ * instrumenting the code by hand.
+ */
+export const getSearchDiagnostics = asyncHandler(async (req, res) => {
+  const mirrors = mirrorHealthSnapshot();
+  return ok(res, {
+    mirrors,
+    usableMirrors: mirrors.filter((mirror) => !mirror.benched).length,
+    totalMirrors: mirrors.length,
+    database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
   });
 });
 

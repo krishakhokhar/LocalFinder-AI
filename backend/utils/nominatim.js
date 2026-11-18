@@ -20,12 +20,54 @@ const TIMEOUT_MS = 6000;
 // categories to the term most likely to surface relevant OSM places.
 const CATEGORY_SEARCH_TERMS = {
   salon: "hair salon",
-  plumber: "plumber",
+  shopping: "supermarket",
   electrician: "electrician",
   restaurant: "restaurant",
-  spa: "spa",
+  spa: "gym",
   car: "car repair",
+  health: "hospital",
 };
+
+// "all" has no single representative term. Previously it was simply skipped
+// and an empty array was returned, which the caller could not tell apart
+// from a genuine "nothing here" - so a total Overpass outage surfaced to the
+// user as "No matches in this area" on the *default* category. These terms
+// are tried in order, spaced to respect Nominatim's ~1 req/s policy, and
+// stop as soon as one yields results.
+const ALL_SEARCH_TERMS = ["restaurant", "hair salon", "pharmacy"];
+
+// Maps a search term back to the OSM tag a real Overpass result would carry,
+// so downstream category detection behaves identically for both providers.
+const TERM_TO_OSM_TAG = {
+  restaurant: ["amenity", "restaurant"],
+  "hair salon": ["shop", "hairdresser"],
+  pharmacy: ["amenity", "pharmacy"],
+  supermarket: ["shop", "supermarket"],
+  electrician: ["craft", "electrician"],
+  gym: ["leisure", "fitness_centre"],
+  spa: ["leisure", "spa"],
+  hospital: ["amenity", "hospital"],
+  "car repair": ["shop", "car_repair"],
+};
+
+function osmTagForCategory(category) {
+  if (category === "car") return ["shop", "car_repair"];
+  if (category === "spa") return ["leisure", "spa"];
+  if (category === "salon") return ["shop", "hairdresser"];
+  if (category === "electrician") return ["craft", category];
+  if (category === "shopping") return ["shop", "supermarket"];
+  return ["amenity", category];
+}
+
+// Nominatim asks for no more than one request per second.
+const MIN_REQUEST_SPACING_MS = 1100;
+let lastRequestAt = 0;
+
+async function throttle() {
+  const wait = lastRequestAt + MIN_REQUEST_SPACING_MS - Date.now();
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  lastRequestAt = Date.now();
+}
 
 function boundingBox(lat, lng, radiusM) {
   const deltaLat = radiusM / 111320;
@@ -49,13 +91,47 @@ function boundingBox(lat, lng, radiusM) {
  * asked and there's really nothing here" apart from "we couldn't ask at
  * all", since only the latter is an upstream failure.
  */
-export async function tryNominatim(category, radius, lat, lng) {
-  const term = CATEGORY_SEARCH_TERMS[category];
-  if (!term) return []; // "all" has no single representative term - skip, not a failure.
+export async function tryNominatim(category, radius, lat, lng, deadline = null) {
+  const terms =
+    category === "all" ? ALL_SEARCH_TERMS : CATEGORY_SEARCH_TERMS[category] ? [CATEGORY_SEARCH_TERMS[category]] : null;
 
+  // A category this provider genuinely cannot express. `null` means "could
+  // not ask", which the caller must not report to the user as "no results".
+  if (!terms) return null;
+
+  const collected = [];
+  const seen = new Set();
+  let anySucceeded = false;
+
+  for (const term of terms) {
+    if (deadline && Date.now() >= deadline) break;
+
+    const batch = await nominatimSearch(term, category, radius, lat, lng);
+    if (batch === null) continue; // this term's request failed; try the next
+    anySucceeded = true;
+
+    for (const place of batch) {
+      // Same place can surface under more than one term.
+      const key = `${place.tags.name}|${place.lat.toFixed(5)}|${place.lon.toFixed(5)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      collected.push(place);
+    }
+
+    if (collected.length > 0) break; // enough to show; don't keep hitting the service
+  }
+
+  // Every attempt failed outright -> "could not ask", not "nothing here".
+  if (!anySucceeded) return null;
+  return collected;
+}
+
+/** One Nominatim call. Returns an array on success, `null` if the request failed. */
+async function nominatimSearch(term, category, radius, lat, lng) {
   const box = boundingBox(lat, lng, radius);
 
   try {
+    await throttle();
     const res = await axios.get(NOMINATIM_URL, {
       params: {
         q: term,
@@ -80,12 +156,17 @@ export async function tryNominatim(category, radius, lat, lng) {
       .map((place) => {
         const addr = place.address || {};
         const street = [addr.road, addr.house_number].filter(Boolean).join(" ");
+        // Tag the result by the term that actually found it, so an "All"
+        // search labels a restaurant as a restaurant rather than inventing
+        // a bogus `amenity=all`.
+        const [tagKey, tagValue] = TERM_TO_OSM_TAG[term] || osmTagForCategory(category);
+
         return {
           lat: parseFloat(place.lat),
           lon: parseFloat(place.lon),
           tags: {
             name: place.namedetails?.name || place.display_name.split(",")[0],
-            [category === "car" ? "shop" : category === "spa" ? "leisure" : "amenity"]: category,
+            [tagKey]: tagValue,
             "addr:street": street || undefined,
           },
         };

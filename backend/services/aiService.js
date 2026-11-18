@@ -85,7 +85,7 @@ function fallbackReply(places, intent, relaxed = []) {
   if (places.length === 0) {
     return intent.category
       ? `I could not find any ${labelForCategory(intent.category).toLowerCase()} matching that nearby. Try widening the distance or removing a filter.`
-      : "I could not find anything matching that nearby. Try naming a category, like salon, restaurant or plumber.";
+      : "I could not find anything matching that nearby. Try naming a category, like salon, restaurant or grocery store.";
   }
 
   const top = places[0];
@@ -182,7 +182,7 @@ export async function runAiSearch({ message, lat, lng, history = [], tzOffsetMin
     return {
       reply:
         intent.clarification ||
-        "What kind of place are you after? For example a salon, restaurant, gym, plumber, electrician or car service.",
+        "What kind of place are you after? For example a salon, restaurant, gym, grocery store, electrician or car service.",
       results: [],
       intent,
       meta: { searched: false, reason: "needs-category" },

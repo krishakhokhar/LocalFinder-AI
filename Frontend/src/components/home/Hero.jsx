@@ -9,7 +9,7 @@ import useSearchHistory from "../../hooks/useSearchHistory";
 import { fadeUp, staggerContainer, transitions } from "../../utils/motion";
 import { categoryConfig } from "../../utils/categories";
 
-const QUICK_CATEGORIES = ["salon", "restaurant", "spa", "plumber", "electrician", "car"];
+const QUICK_CATEGORIES = ["salon", "restaurant", "spa", "shopping", "electrician", "car"];
 
 /**
  * Above the fold: one sentence of positioning, one search box, and a row

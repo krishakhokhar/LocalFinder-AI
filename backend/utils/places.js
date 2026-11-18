@@ -1,5 +1,8 @@
 import { getCached, setCached, tryOverpass } from "./overpass.js";
 import { tryNominatim } from "./nominatim.js";
+import { createLogger } from "./logger.js";
+
+const log = createLogger("places");
 
 // Progressive search radii (meters): start tight, widen only if genuinely
 // nothing was found nearby. LocalFinder's whole purpose is to find the
@@ -49,19 +52,46 @@ export async function findNearbyPlaces({
       lat,
       lng,
       preferredMirror,
-      deadline
+      deadline,
+      log
     ));
   }
   if (overpassElements !== null) {
     setCached(category, radius, lat, lng, overpassElements);
+    log.debug(
+      `overpass ok category=${category} radius=${radius} elements=${overpassElements.length} mirror=${mirrorUsed}`
+    );
     return { elements: overpassElements, provider: "overpass", degraded: false, mirrorUsed };
   }
 
-  const nominatimElements = await tryNominatim(category, radius, lat, lng);
+  log.warn(`overpass unavailable for category=${category} radius=${radius}; falling back to nominatim`);
+
+  const nominatimElements = await tryNominatim(category, radius, lat, lng, deadline);
   if (nominatimElements !== null) {
+    log.debug(`nominatim fallback returned ${nominatimElements.length} elements`);
+
+    // An empty fallback result is NOT evidence that the area is empty.
+    // Nominatim is a free-text geocoder, not a tag-and-radius search, and
+    // it regularly returns nothing where Overpass finds real places - two
+    // salons in this very test area. Reporting that as a confident "no
+    // results" is how a provider outage got shown to users as an empty
+    // neighbourhood, so an empty fallback is flagged as incomplete.
+    if (nominatimElements.length === 0) {
+      return {
+        elements: [],
+        provider: "nominatim",
+        degraded: true,
+        message:
+          "Live map search is temporarily limited, so this result may be incomplete. Please try again in a moment.",
+        mirrorUsed: null,
+      };
+    }
+
     setCached(category, radius, lat, lng, nominatimElements);
     return { elements: nominatimElements, provider: "nominatim", degraded: false, mirrorUsed: null };
   }
+
+  log.error(`both overpass and nominatim failed for category=${category} radius=${radius}`);
 
   return {
     elements: [],
@@ -102,10 +132,33 @@ export async function findNearbyPlaces({
  * `timedOut` so the caller can say the search was cut short rather than
  * implying the area is empty.
  */
-const SEARCH_BUDGET_MS = 9000;
+/*
+ * Sized from measurement, not guesswork. Worst realistic cold start:
+ * three unreachable mirrors each holding a concurrency slot for 4.5s
+ * while hedging starts the next one every 1.5s, then a healthy mirror
+ * needing ~3s for the widest query. That lands around 7.5s, so 15s
+ * leaves genuine headroom without being a wait nobody tolerates.
+ *
+ * This only applies to a cold process: mirror health and the 3-minute
+ * result cache mean subsequent searches settle in ~3s.
+ */
+const SEARCH_BUDGET_MS = 34000;
 
-export async function findNearbyPlacesExpanding({ lat, lng, category, startRadius, budgetMs = SEARCH_BUDGET_MS }) {
-  const ladder = buildRadiusLadder(startRadius);
+export async function findNearbyPlacesExpanding({
+  lat,
+  lng,
+  category,
+  startRadius,
+  budgetMs = SEARCH_BUDGET_MS,
+  // Off by default: the radius the user picked is the radius we search.
+  // Quietly returning places from 15 km under a "3 km" filter made the
+  // distance figures look wrong and the filter feel broken. When nothing
+  // is found we report `suggestedRadius` instead, and the UI offers it.
+  autoExpand = false,
+}) {
+  const ladder = autoExpand ? buildRadiusLadder(startRadius) : [startRadius];
+  const wider = buildRadiusLadder(startRadius).filter((r) => r > startRadius);
+  const suggestedRadius = wider.length > 0 ? wider[0] : null;
   const deadline = Date.now() + budgetMs;
 
   let preferredMirror = null;
@@ -142,20 +195,32 @@ export async function findNearbyPlacesExpanding({ lat, lng, category, startRadiu
     // a wider query is slower than the one that just finished, so going
     // on with a nearly-spent budget mostly produces a timeout.
     if (Date.now() >= deadline) {
+      log.warn(`search budget spent at radius=${radius} with no results (provider=${result.provider})`);
       return {
         elements: [],
         provider: result.provider,
-        degraded: false,
+        // A search that ran out of time never finished looking. Reporting it
+        // as a clean empty result would tell the user "there is nothing near
+        // you", which we do not actually know.
+        degraded: true,
         timedOut: true,
+        message:
+          "The search was cut short before it could finish. This is usually temporary - please try again.",
         radiusUsed: radius,
       };
     }
   }
 
+  // Every tier completed and genuinely found nothing. This one *is* a real
+  // empty result, so it is not flagged as degraded.
+  log.info(`no results at ${lastRadius}m for category=${category}`);
   return {
     elements: [],
     provider: "none",
     degraded: false,
     radiusUsed: lastRadius,
+    // Lets the UI offer "search 5 km instead" rather than widening behind
+    // the user's back.
+    suggestedRadius,
   };
 }

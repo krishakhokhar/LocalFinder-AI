@@ -10,7 +10,7 @@ export const BUILT_IN_CATEGORY_FALLBACK = [
   { key: "salon", label: "Salon & Beauty" },
   { key: "restaurant", label: "Food & Dining" },
   { key: "spa", label: "Spa & Gym" },
-  { key: "plumber", label: "Plumber" },
+  { key: "shopping", label: "Shopping & Essentials" },
   { key: "electrician", label: "Electrician" },
   { key: "car", label: "Car Service" },
   { key: "health", label: "Health" },

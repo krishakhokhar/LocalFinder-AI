@@ -18,7 +18,11 @@ export const SUPPORTED_CATEGORIES = [...new Set([...VALID_CATEGORIES, ...BUILT_I
 
 const CATEGORY_KEYWORDS = {
   salon: ["salon", "haircut", "hair cut", "hairdresser", "barber", "beauty", "parlour", "parlor", "grooming", "nai", "vaad", "baal"],
-  plumber: ["plumber", "plumbing", "leak", "pipe", "nal", "nalka"],
+  shopping: [
+    "shopping", "shop", "store", "supermarket", "grocery", "groceries", "kirana",
+    "convenience", "mall", "department store", "market", "bazaar", "bazar",
+    "provision", "general store", "daily needs", "saman", "dukan",
+  ],
   electrician: ["electrician", "electrical", "wiring", "fuse", "bijli", "light theek"],
   restaurant: ["restaurant", "restro", "resto", "food", "eat", "cafe", "coffee", "dinner", "lunch", "breakfast", "khana", "bhojan", "jaman", "thali", "biryani", "pizza", "dhaba"],
   spa: ["spa", "gym", "fitness", "workout", "massage", "yoga", "wellness", "kasrat"],
@@ -249,11 +253,11 @@ function coerceIntent(raw, fallback, message = "") {
    * The rules win on category.
    *
    * A rule match means the user literally wrote a word we map to a
-   * category ("gym", "salon", "plumber"), which is as certain as this
+   * category ("gym", "salon", "grocery"), which is as certain as this
    * gets. Left to itself the model reasons by association and sends
    * "gym" to the health category, where it finds nothing. The model's
    * job here is to fill the gap when the rules found nothing at all -
-   * for example turning "someone to fix my sink" into "plumber".
+   * for example turning "need milk and bread" into "shopping".
    */
   const category = fallback.category || modelCategory;
 

@@ -120,6 +120,7 @@ function normaliseBusiness(business, origin, tzOffsetMinutes) {
     openNow: businessOpenNow(business, tzOffsetMinutes),
     rating: null,
     ratingCount: 0,
+    ratingSource: null,
     priceRange: business.priceRange ?? null,
     priceFrom: priceFrom(business),
     currency: business.services?.[0]?.currency || "INR",
@@ -165,6 +166,7 @@ function normaliseOsmElement(element, origin, tzOffsetMinutes) {
     openNow: isOpenNow(raw, tzOffsetMinutes),
     rating: null,
     ratingCount: 0,
+    ratingSource: null,
     // OpenStreetMap carries no pricing data. Showing a band here would be a
     // guess, so it stays unknown unless the owner registers the business.
     priceRange: null,
@@ -180,6 +182,36 @@ function normaliseOsmElement(element, origin, tzOffsetMinutes) {
 }
 
 /**
+ * Collapses external results that are the same real place listed twice.
+ *
+ * A business is routinely mapped more than once in OpenStreetMap - as a
+ * node and as a building way - and Overpass and Nominatim often disagree
+ * on which coordinate represents it. Those copies differ by a few hundred
+ * metres and only in capitalisation, so matching on exact coordinates
+ * never caught them. The nearest copy wins.
+ *
+ * 500 m is wide enough for the provider disagreement actually observed
+ * (493 m for one gym listed twice) while staying tight enough that two
+ * genuine branches of a chain are not merged.
+ */
+function dedupeExternal(external) {
+  const kept = [];
+  for (const place of [...external].sort(
+    (a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity)
+  )) {
+    const name = normaliseName(place.name);
+    const duplicate = kept.some(
+      (existing) =>
+        name &&
+        normaliseName(existing.name) === name &&
+        haversineKm(existing.lat, existing.lng, place.lat, place.lng) < 0.5
+    );
+    if (!duplicate) kept.push(place);
+  }
+  return kept;
+}
+
+/**
  * Drops OSM copies of businesses that are registered with us: same-ish name
  * within 150 m. The registered record wins because it is richer and owner
  * maintained.
@@ -191,7 +223,7 @@ function dedupe(registered, external) {
     lng: place.lng,
   }));
 
-  const kept = external.filter((place) => {
+  const kept = dedupeExternal(external).filter((place) => {
     const name = normaliseName(place.name);
     return !keys.some(
       (key) =>
@@ -248,7 +280,13 @@ export async function searchPlaces({
   limit = 20,
   tzOffsetMinutes = 0,
   includeExternal = true,
+  source = "all",
+  autoExpand = false,
 } = {}) {
+  // `includeExternal=false` is the legacy spelling of `source=registered`.
+  const effectiveSource = includeExternal === false ? "registered" : source;
+  const wantRegistered = effectiveSource !== "osm";
+  const wantExternal = effectiveSource !== "registered";
   const origin = { lat, lng };
   const effectiveRadius = clampRadius(radius);
   const terms = String(query || "")
@@ -269,7 +307,7 @@ export async function searchPlaces({
   if (category && category !== "all") businessFilter.category = category;
 
   let registered = [];
-  if (dbReady()) {
+  if (wantRegistered && dbReady()) {
     try {
       const docs = await Business.find(businessFilter).limit(60).lean();
       registered = docs.map((doc) => normaliseBusiness(doc, origin, tzOffsetMinutes));
@@ -288,20 +326,23 @@ export async function searchPlaces({
   let radiusUsed = effectiveRadius;
   let rawElements = [];
   let timedOut = false;
+  let suggestedRadius = null;
 
   const externalCategory = VALID_CATEGORIES.includes(category) ? category : null;
-  if (includeExternal && externalCategory) {
+  if (wantExternal && externalCategory) {
     const result = await findNearbyPlacesExpanding({
       lat,
       lng,
       category: externalCategory,
       startRadius: effectiveRadius,
+      autoExpand,
     });
     rawElements = result.elements || [];
     provider = result.provider;
     degraded = Boolean(result.degraded);
     degradedMessage = result.message || null;
     timedOut = Boolean(result.timedOut);
+    suggestedRadius = result.suggestedRadius ?? null;
     radiusUsed = result.radiusUsed || effectiveRadius;
     external = rawElements
       .map((element) => normaliseOsmElement(element, origin, tzOffsetMinutes))
@@ -318,7 +359,18 @@ export async function searchPlaces({
       const summaries = await Review.summaryForPlaceIds(places.map((place) => place.placeId));
       places = places.map((place) => {
         const summary = summaries.get(place.placeId);
-        return summary ? { ...place, rating: summary.rating, ratingCount: summary.ratingCount } : place;
+        // Every rating in this product comes from LocalFinder reviews of
+        // that exact place. OpenStreetMap carries no ratings at all, so
+        // there is no second scale to reconcile - and `ratingSource` makes
+        // that explicit rather than implied.
+        return summary
+          ? {
+              ...place,
+              rating: summary.rating,
+              ratingCount: summary.ratingCount,
+              ratingSource: "localfinder",
+            }
+          : place;
       });
     } catch (error) {
       log.error("rating summary lookup failed", error.message);
@@ -327,18 +379,51 @@ export async function searchPlaces({
 
   // --- filters ----------------------------------------------------------
   const totalBeforeFilters = places.length;
+  const dropped = { category: 0, distance: 0, query: 0, openNow: 0, rating: 0, price: 0 };
+
   places = places.filter((place) => {
-    if (place.distanceKm !== null && place.distanceKm * 1000 > radiusUsed + 50) return false;
-    if (!matchesQuery(place, terms)) return false;
-    // `openNow` keeps only places *known* to be open. Unknown hours are
-    // excluded rather than assumed open - the filter must not mislead.
-    if (openNow && place.openNow !== true) return false;
-    if (minRating > 0 && (place.rating === null || place.rating < minRating)) return false;
+    // Category guard. Overpass is asked only for the selected category, but
+    // the Nominatim fallback is a free-text search and will happily return a
+    // hospital for "spa". Without this, a provider failover could put
+    // unrelated places on the map under a specific filter.
+    if (category && category !== "all" && place.category !== category) {
+      dropped.category += 1;
+      return false;
+    }
+    if (place.distanceKm !== null && place.distanceKm * 1000 > radiusUsed + 50) {
+      dropped.distance += 1;
+      return false;
+    }
+    if (!matchesQuery(place, terms)) {
+      dropped.query += 1;
+      return false;
+    }
+    // Open Now excludes only places *known* to be closed. A place whose
+    // hours OpenStreetMap does not record is unknown, not closed, and
+    // hiding it would silently delete most of the result set - which is
+    // exactly what was emptying this filter.
+    if (openNow && place.openNow === false) {
+      dropped.openNow += 1;
+      return false;
+    }
+    if (minRating > 0 && (place.rating === null || place.rating < minRating)) {
+      dropped.rating += 1;
+      return false;
+    }
     if (maxPrice !== null && maxPrice !== undefined) {
-      if (place.priceFrom === null || place.priceFrom > maxPrice) return false;
+      if (place.priceFrom === null || place.priceFrom > maxPrice) {
+        dropped.price += 1;
+        return false;
+      }
     }
     return true;
   });
+
+  log.debug(
+    `category=${category} radius=${effectiveRadius} radiusUsed=${radiusUsed} ` +
+      `raw=${rawElements.length} registered=${registered.length} external=${external.length} ` +
+      `beforeFilters=${totalBeforeFilters} kept=${places.length} dropped=${JSON.stringify(dropped)}`
+  );
 
   // --- sorting ----------------------------------------------------------
   const byDistance = (a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity);
@@ -347,6 +432,25 @@ export async function searchPlaces({
     places.sort((a, b) => {
       if ((b.rating ?? -1) !== (a.rating ?? -1)) return (b.rating ?? -1) - (a.rating ?? -1);
       if (b.ratingCount !== a.ratingCount) return b.ratingCount - a.ratingCount;
+      return byDistance(a, b);
+    });
+  } else if (sort === "reviews") {
+    // Most reviewed first. Zero reviews is a real count, not a missing one.
+    places.sort((a, b) => {
+      if (b.ratingCount !== a.ratingCount) return b.ratingCount - a.ratingCount;
+      if ((b.rating ?? -1) !== (a.rating ?? -1)) return (b.rating ?? -1) - (a.rating ?? -1);
+      return byDistance(a, b);
+    });
+  } else if (sort === "price") {
+    // Cheapest known price first. A place with no published price is
+    // unknown, not free, so it sorts after every priced place rather than
+    // being treated as zero.
+    places.sort((a, b) => {
+      const ap = a.priceFrom, bp = b.priceFrom;
+      if (ap === null && bp === null) return byDistance(a, b);
+      if (ap === null) return 1;
+      if (bp === null) return -1;
+      if (ap !== bp) return ap - bp;
       return byDistance(a, b);
     });
   } else if (sort === "relevance") {
@@ -385,8 +489,22 @@ export async function searchPlaces({
     message:
       degradedMessage ||
       (timedOut
-        ? "The search was cut short before it could widen further. There may be more places a little further out."
+        ? "The search was cut short before it could finish. This is usually temporary - please try again."
         : null),
+    // Only offered when the area really is empty, never applied silently.
+    suggestedRadius: total === 0 && !degraded && !timedOut ? suggestedRadius : null,
+    // Why results disappeared, per filter. Without this an empty list is
+    // indistinguishable from a broken filter, which is precisely how a
+    // correct rating filter looked like a bug: nothing in this deployment
+    // has been reviewed yet, so any minimum rating removes everything.
+    hiddenByOpenNow: openNow ? dropped.openNow : 0,
+    hiddenByRating: minRating > 0 ? dropped.rating : 0,
+    hiddenByPrice: maxPrice !== null && maxPrice !== undefined ? dropped.price : 0,
+    unknownHoursCount: places.filter((place) => place.openNow === null).length,
+    // How much of the candidate set carries the data each filter needs.
+    ratedCount: places.filter((place) => place.rating !== null).length,
+    pricedCount: places.filter((place) => place.priceFrom !== null).length,
+    source: effectiveSource,
     attribution:
       external.length > 0
         ? "Place data © OpenStreetMap contributors (ODbL)"

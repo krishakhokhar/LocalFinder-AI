@@ -46,12 +46,15 @@ function BusinessCard({
   const priceFrom = formatPrice(place.priceFrom, place.currency);
   const detailsPath = place.businessId ? `/business/${place.businessId}` : null;
 
+  // Three states, not two. OpenStreetMap records no opening hours for most
+  // places, and showing nothing there reads as "we checked" - so unknown is
+  // labelled as unknown rather than left blank or guessed at.
   const open =
     place.openNow === true
       ? { label: "Open now", tone: "success" }
       : place.openNow === false
         ? { label: "Closed", tone: "danger" }
-        : null;
+        : { label: "Hours not listed", tone: "neutral" };
 
   const handleKeyDown = (event) => {
     if (!onSelect) return;

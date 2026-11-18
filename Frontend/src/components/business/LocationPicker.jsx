@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Crosshair, MapPin } from "lucide-react";
 import Button from "../common/Button";
-import useGeolocation from "../../hooks/useGeolocation";
+import useGeolocation, { readLastKnownLocation } from "../../hooks/useGeolocation";
 
 const pinIcon = L.divIcon({
   className: "",
@@ -62,8 +62,16 @@ export default function LocationPicker({ value, onChange, error }) {
     if (coords) place({ lat: coords.lat, lng: coords.lng });
   };
 
-  // Ahmedabad, purely as a starting view when no pin has been dropped.
-  const center = position ? [position.lat, position.lng] : [23.0225, 72.5714];
+  // Starting view only - no pin is placed until the owner places one.
+  // Prefers a position they have already shared (no new prompt) over a
+  // hardcoded city, which would strand owners outside that one city.
+  const lastKnown = useMemo(() => readLastKnownLocation(), []);
+  const center = position
+    ? [position.lat, position.lng]
+    : lastKnown
+      ? [lastKnown.lat, lastKnown.lng]
+      : [20, 0];
+  const zoom = position ? 16 : lastKnown ? 12 : 2;
 
   return (
     <div>
@@ -78,7 +86,7 @@ export default function LocationPicker({ value, onChange, error }) {
 
       <div className={`overflow-hidden rounded-card border ${error ? "border-danger-300" : "border-line"}`}>
         <div className="h-64">
-          <MapContainer center={center} zoom={position ? 16 : 12} className="h-full w-full" scrollWheelZoom>
+          <MapContainer center={center} zoom={zoom} className="h-full w-full" scrollWheelZoom>
             <TileLayer
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
