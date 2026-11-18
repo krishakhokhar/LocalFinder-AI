@@ -9,8 +9,41 @@ import { useReducedMotion } from "motion/react";
  * ignores that media query. These helpers flatten variants and transitions
  * to instant so the preference actually holds everywhere.
  */
+const OVERRIDE_KEY = "localfinder:force-motion";
+
+/**
+ * Development-only escape hatch.
+ *
+ * When the machine has "reduce motion" switched on, every animation in the
+ * product is correctly disabled - which also makes it impossible to review
+ * the animations while building them. This lets a developer preview them
+ * on their own machine without changing an OS setting.
+ *
+ * It is ignored in production builds, so a real viewer's accessibility
+ * preference is always honoured.
+ */
+export function isMotionForced() {
+  if (!import.meta.env.DEV) return false;
+  try {
+    return localStorage.getItem(OVERRIDE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setMotionForced(on) {
+  try {
+    if (on) localStorage.setItem(OVERRIDE_KEY, "1");
+    else localStorage.removeItem(OVERRIDE_KEY);
+  } catch {
+    /* private mode - the preview simply does not persist */
+  }
+  window.location.reload();
+}
+
 export function useMotionSafe() {
-  const reduce = useReducedMotion();
+  const systemReduce = useReducedMotion();
+  const reduce = systemReduce && !isMotionForced();
 
   // Every animation in the product passes through here, so when the OS asks
   // for reduced motion the whole interface goes still - correctly, but
@@ -36,7 +69,9 @@ export function useMotionSafe() {
   /** Drops hover/tap transforms. */
   const interaction = (value) => (reduce ? {} : value);
 
-  return { reduce, variants, transition, interaction };
+  // `systemReduce` is what the machine asked for; `reduce` is what is
+  // actually applied after the dev override. The banner needs both.
+  return { reduce, systemReduce, variants, transition, interaction };
 }
 
 export default useMotionSafe;

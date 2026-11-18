@@ -8,12 +8,28 @@ import useGeolocation from "../../hooks/useGeolocation";
 import useSearchHistory from "../../hooks/useSearchHistory";
 import { fadeUp, scaleIn, staggerContainer, transitions } from "../../utils/motion";
 import { categoryConfig } from "../../utils/categories";
+import RotatingWords from "./RotatingWords";
+import SignalField from "../motion/SignalField";
 
 const QUICK_CATEGORIES = ["salon", "restaurant", "spa", "shopping", "electrician", "car"];
 
+const SUBTITLE =
+  "Find trusted businesses, discover hidden places and explore everything around you with AI.".split(
+    " "
+  );
+
+// Softer and shorter than the shared fadeUp - a paragraph revealing word
+// by word should feel like text settling, not like each word arriving.
+const wordReveal = {
+  hidden: { opacity: 0, y: 8, filter: "blur(4px)" },
+  visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.42, ease: [0.16, 1, 0.3, 1] } },
+};
+
+// Headline phrases. `break` forces a line break on wider screens so it
+// reads as two balanced lines.
 const HEADLINE = [
   { text: "Discover local." },
-  { text: "Compare smart.", accent: true, break: true },
+  { text: "Compare smart.", break: true },
   { text: "Choose better." },
 ];
 
@@ -117,14 +133,27 @@ export default function Hero() {
           animate={reduce ? undefined : { x: [0, -22, 0], y: [0, 24, 0], opacity: [0.5, 0.8, 0.5] }}
           transition={reduce ? undefined : { duration: 18, repeat: Infinity, ease: "easeInOut", delay: 1.5 }}
         />
+        {/* The dot field replaces the old static grid rather than stacking
+            on top of it - two textures behind the same headline would be
+            noise, and the headline is itself drawn on a canvas. */}
+        {/* Dark enough to actually read against the light surface - the
+            earlier values were effectively white on white. */}
+        <SignalField
+          className="opacity-100"
+          dotColor="rgba(51,65,85,0.85)"
+          accent="#1D4ED8"
+          spacing={7}
+        />
+
+        {/* Softens the map directly behind the copy. The dots are strong
+            enough to read as continents now, which also means they would
+            compete with the headline without this - so the centre is
+            lifted while the edges keep their detail. */}
         <div
-          className="absolute inset-0 opacity-[0.35]"
+          className="absolute inset-0"
           style={{
-            backgroundImage:
-              "linear-gradient(#E2E8F0 1px, transparent 1px), linear-gradient(90deg, #E2E8F0 1px, transparent 1px)",
-            backgroundSize: "64px 64px",
-            maskImage: "radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%)",
-            WebkitMaskImage: "radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%)",
+            background:
+              "radial-gradient(ellipse 58% 52% at 50% 46%, rgba(255,255,255,0.93) 0%, rgba(255,255,255,0.80) 45%, rgba(255,255,255,0) 78%)",
           }}
         />
       </div>
@@ -155,15 +184,19 @@ export default function Hero() {
         {/* Phrase-by-phrase entrance. Split on phrases rather than single
             words so the line still reads as a sentence while it lands, and
             kept as one <h1> so assistive tech sees one heading. */}
+        {/* Real, crisp type - not a canvas. The particle version sampled
+            the glyphs into dots, which read as pixelated at this size.
+            This keeps the letterforms sharp and carries the motion in a
+            gradient that sweeps across them continuously. */}
         <motion.h1
-          variants={variants(staggerContainer(0.08))}
-          className="mx-auto mt-6 max-w-3xl font-display text-[2rem] font-extrabold leading-[1.1] tracking-tight text-ink sm:text-5xl lg:text-[3.4rem]"
+          variants={variants(staggerContainer(0.09))}
+          className="mx-auto mt-6 max-w-3xl font-display text-[2rem] font-extrabold leading-[1.12] tracking-tight sm:text-5xl lg:text-[3.4rem]"
         >
           {HEADLINE.map((phrase) => (
             <motion.span
               key={phrase.text}
               variants={variants(fadeUp)}
-              className={`inline-block ${phrase.accent ? "text-brand-600" : ""}`}
+              className="lf-sheen inline-block"
             >
               {phrase.text}
               {phrase.break ? <br className="hidden sm:block" /> : " "}
@@ -171,11 +204,36 @@ export default function Hero() {
           ))}
         </motion.h1>
 
+        {/* Keeps running after the entrance has finished, so the hero is
+            never completely still. */}
+        {/* RotatingWords renders the whole line, including the fixed words
+            either side - it needs them inside its own flex row so the pill
+            can push them as it resizes. */}
         <motion.p
           variants={variants(fadeUp)}
-          className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-ink-muted sm:text-lg"
+          className="mt-6 flex justify-center font-display text-[1.375rem] tracking-[-0.015em] sm:text-[1.625rem]"
         >
-          Find trusted businesses, discover hidden places and explore everything around you with AI.
+          <RotatingWords />
+        </motion.p>
+
+        {/* Revealed word by word. Each word is its own inline-block so the
+            transform never affects the line box - the paragraph wraps
+            exactly as it would without any animation. */}
+        <motion.p
+          variants={variants(staggerContainer(0.028, 0.12))}
+          className="mx-auto mt-4 max-w-2xl text-balance text-[1.0625rem] font-normal leading-[1.75] tracking-[-0.011em] text-ink-muted sm:text-lg"
+        >
+          {SUBTITLE.map((word, index) => (
+            <motion.span
+              // Words repeat, so the index has to be part of the key.
+              key={`${word}-${index}`}
+              variants={variants(wordReveal)}
+              className="inline-block"
+            >
+              {word === "AI." ? <span className="font-semibold text-ink-soft">{word}</span> : word}
+              {index < SUBTITLE.length - 1 ? " " : null}
+            </motion.span>
+          ))}
         </motion.p>
 
         {/* Search */}

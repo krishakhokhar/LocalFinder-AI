@@ -30,10 +30,28 @@ const DEFAULT_ALLOWED_ORIGINS = ["http://localhost:5173", "https://local-finder-
 const VERCEL_PREVIEW_ORIGIN_REGEX =
   /^https:\/\/local-finder-ai-[a-z0-9-]+-krishakhokhars-projects\.vercel\.app$/;
 
+/**
+ * Any localhost port, development only.
+ *
+ * Vite does not guarantee port 5173: when it is already in use - a second
+ * terminal, a dev server that did not shut down cleanly - it silently
+ * moves to 5174, 5175 and so on. Pinning the allowlist to 5173 meant the
+ * app then failed every request with a CORS rejection, which the browser
+ * reports to JavaScript as a generic network failure, so the UI said
+ * "check your internet connection" while the server was running fine.
+ *
+ * This is gated on NODE_ENV and never loosens production, where the
+ * explicit list and the Vercel pattern still apply.
+ */
+const LOCALHOST_ORIGIN_REGEX = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
 export function buildCorsOptions() {
   const allowed = [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...env.corsOrigins])];
 
-  const isAllowed = (origin) => allowed.includes(origin) || VERCEL_PREVIEW_ORIGIN_REGEX.test(origin);
+  const isAllowed = (origin) =>
+    allowed.includes(origin) ||
+    VERCEL_PREVIEW_ORIGIN_REGEX.test(origin) ||
+    (!env.isProduction && LOCALHOST_ORIGIN_REGEX.test(origin));
 
   return {
     origin: (origin, callback) => {

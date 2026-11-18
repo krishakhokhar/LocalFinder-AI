@@ -9,6 +9,7 @@ import ScrollToTop from "./components/motion/ScrollToTop";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import RouteFallback from "./components/common/RouteFallback";
 import AiAssistant from "./components/ai/AiAssistant";
+import MotionNotice from "./components/motion/MotionNotice";
 
 // The landing page is the one route that must paint immediately, so it
 // stays in the initial bundle. Everything else is split: Leaflet, the
@@ -206,6 +207,7 @@ export default function App() {
         <ScrollToTop />
         <AppRoutes selectedPosition={selectedPosition} setUserLocation={setUserLocation} />
         <AiAssistant setSelectedPosition={setSelectedPosition} userLocation={userLocation} />
+        <MotionNotice />
         <ToastContainer
           position="bottom-right"
           autoClose={3500}

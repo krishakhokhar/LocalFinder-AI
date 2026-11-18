@@ -93,10 +93,32 @@ export async function request(path, { method = "GET", body, params, signal, auth
     });
   } catch (error) {
     if (error.name === "AbortError") throw error;
-    throw new ApiError("Could not reach the server. Check your internet connection.", {
-      status: 0,
-      code: "NETWORK",
-    });
+
+    // The browser deliberately hides the reason a cross-origin request
+    // failed, so a CORS rejection arrives here looking exactly like an
+    // offline device. `navigator.onLine` is the one signal available: it
+    // is unreliable as proof of connectivity, but a confident "true" does
+    // rule out the obvious explanation and stops the UI blaming the
+    // user's wi-fi for a server-side origin policy.
+    const online = typeof navigator === "undefined" || navigator.onLine !== false;
+    const message = online
+      ? `Could not reach the API at ${API_BASE_URL}. The server may be down, or the browser blocked the request.`
+      : "You appear to be offline. Check your internet connection.";
+
+    if (import.meta.env.DEV && online) {
+      console.error(
+        `[api] request to ${API_BASE_URL} failed while the browser reports it is online.\n` +
+          "  Most likely causes:\n" +
+          "   1. The backend is not running (start it in backend/ with: npm run dev)\n" +
+          "   2. CORS - this page's origin is not on the backend allowlist\n" +
+          `      This page is served from ${window.location.origin}\n` +
+          "   3. VITE_API_URL points somewhere unreachable\n" +
+          "  The Network tab shows which: a CORS failure still reaches the server.",
+        error
+      );
+    }
+
+    throw new ApiError(message, { status: 0, code: "NETWORK" });
   }
 
   let payload = null;

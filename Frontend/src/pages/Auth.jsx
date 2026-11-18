@@ -75,12 +75,27 @@ const PANELS = {
 export default function Auth() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { login, register, isAuthenticated } = useAuth();
   const { variants, reduce } = useMotionSafe();
 
   const [mode, setMode] = useState(() => (searchParams.get("mode") === "register" ? "register" : "login"));
   const [asOwner, setAsOwner] = useState(() => searchParams.get("role") === "owner");
+
+  /**
+   * Follow the URL when it changes under us.
+   *
+   * These two pieces of state are seeded from the query string by a
+   * `useState` initialiser, which React runs exactly once. Navigating from
+   * "/auth?mode=register" to "/auth" keeps this same component mounted and
+   * only swaps the search params, so without this the page kept showing
+   * the register form and the navbar's "Sign in" link looked dead.
+   */
+  useEffect(() => {
+    const wantRegister = searchParams.get("mode") === "register";
+    setMode(wantRegister ? "register" : "login");
+    setAsOwner(searchParams.get("role") === "owner");
+  }, [searchParams]);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
@@ -161,24 +176,43 @@ export default function Auth() {
     }
   };
 
+  /**
+   * Switching mode from inside the form moves the URL too, so the address
+   * bar always matches what is on screen, the view is shareable, and Back
+   * returns to the previous mode instead of leaving the page.
+   */
   const switchMode = () => {
-    setMode((current) => (current === "login" ? "register" : "login"));
+    const next = mode === "login" ? "register" : "login";
+    const params = new URLSearchParams(searchParams);
+    if (next === "register") params.set("mode", "register");
+    else params.delete("mode");
+    setSearchParams(params);
     setErrors({});
   };
 
   return (
-    <AppShell footer={false}>
-      <div className="grid min-h-[calc(100dvh-4rem)] lg:grid-cols-2">
+    <AppShell footer={false} fullHeight>
+      {/* The page itself never scrolls. The split fills the viewport and
+          only the form column scrolls internally, so the artwork stays
+          put instead of sliding away as the form grows. */}
+      <div className="grid h-full lg:grid-cols-2">
         {/* Form */}
-        <div className="flex items-center justify-center px-5 py-12 sm:px-8">
+        {/* `overflow-y-auto` is a safety net for very short windows and
+            large browser zoom - at normal sizes the form fits and nothing
+            scrolls. The alternative, clipping, would hide the submit
+            button outright. */}
+        <div className="lf-scroll flex justify-center overflow-y-auto px-5 py-6 sm:px-8">
           <motion.div
             variants={variants(staggerContainer(0.06))}
             initial="hidden"
             animate="visible"
-            className="w-full max-w-md"
+            /* `my-auto` centres the form while it fits and lets it grow
+               from the top once it is taller than the column - centring
+               with `items-center` would clip the top edge instead. */
+            className="my-auto w-full max-w-md"
           >
             <motion.div variants={variants(fadeUp)}>
-              <h1 className="font-display text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+              <h1 className="font-display text-xl font-extrabold tracking-tight text-ink sm:text-2xl">
                 {isRegister ? "Create your account" : "Welcome back"}
               </h1>
               <p className="mt-2 text-sm text-ink-muted">
@@ -189,8 +223,8 @@ export default function Auth() {
             </motion.div>
 
             {isRegister ? (
-              <motion.div variants={variants(fadeUp)} className="mt-6">
-                <p className="mb-2 text-xs font-bold uppercase tracking-wider text-ink-faint">
+              <motion.div variants={variants(fadeUp)} className="mt-4">
+                <p className="mb-1.5 text-2xs font-bold uppercase tracking-wider text-ink-faint">
                   I am signing up as
                 </p>
                 <div className="grid grid-cols-2 gap-2">
@@ -198,7 +232,7 @@ export default function Auth() {
                     type="button"
                     onClick={() => setAsOwner(false)}
                     aria-pressed={!asOwner}
-                    className={`rounded-xl border p-3 text-left transition-colors ${
+                    className={`rounded-xl border p-2.5 text-left transition-colors ${
                       !asOwner
                         ? "border-brand-600 bg-brand-50 ring-2 ring-brand-600/15"
                         : "border-line bg-surface hover:border-line-strong"
@@ -208,15 +242,15 @@ export default function Auth() {
                       className={`h-4 w-4 ${!asOwner ? "text-brand-600" : "text-ink-faint"}`}
                       aria-hidden="true"
                     />
-                    <span className="mt-1.5 block text-sm font-bold text-ink">A customer</span>
-                    <span className="mt-0.5 block text-xs text-ink-muted">Find and book services</span>
+                    <span className="mt-1 block text-sm font-bold text-ink">A customer</span>
+                    <span className="mt-0.5 block text-2xs leading-snug text-ink-muted">Find and book services</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setAsOwner(true)}
                     aria-pressed={asOwner}
-                    className={`rounded-xl border p-3 text-left transition-colors ${
+                    className={`rounded-xl border p-2.5 text-left transition-colors ${
                       asOwner
                         ? "border-brand-600 bg-brand-50 ring-2 ring-brand-600/15"
                         : "border-line bg-surface hover:border-line-strong"
@@ -226,38 +260,42 @@ export default function Auth() {
                       className={`h-4 w-4 ${asOwner ? "text-brand-600" : "text-ink-faint"}`}
                       aria-hidden="true"
                     />
-                    <span className="mt-1.5 block text-sm font-bold text-ink">A business owner</span>
-                    <span className="mt-0.5 block text-xs text-ink-muted">List and manage a business</span>
+                    <span className="mt-1 block text-sm font-bold text-ink">A business owner</span>
+                    <span className="mt-0.5 block text-2xs leading-snug text-ink-muted">List and manage a business</span>
                   </button>
                 </div>
               </motion.div>
             ) : null}
 
-            <motion.form variants={variants(fadeUp)} onSubmit={submit} className="mt-6 space-y-4" noValidate>
-              {isRegister ? (
+            <motion.form variants={variants(fadeUp)} onSubmit={submit} className="mt-4 space-y-3" noValidate>
+              {/* Paired on one row when registering, so the whole form
+                  fits a laptop screen without scrolling. */}
+              <div className={isRegister ? "grid gap-3 sm:grid-cols-2" : ""}>
+                {isRegister ? (
+                  <Input
+                    label="Full name"
+                    icon={UserIcon}
+                    value={form.name}
+                    onChange={update("name")}
+                    error={errors.name}
+                    autoComplete="name"
+                    placeholder="Your name"
+                    required
+                  />
+                ) : null}
+
                 <Input
-                  label="Full name"
-                  icon={UserIcon}
-                  value={form.name}
-                  onChange={update("name")}
-                  error={errors.name}
-                  autoComplete="name"
-                  placeholder="Your name"
+                  label="Email"
+                  type="email"
+                  icon={Mail}
+                  value={form.email}
+                  onChange={update("email")}
+                  error={errors.email}
+                  autoComplete="email"
+                  placeholder="you@example.com"
                   required
                 />
-              ) : null}
-
-              <Input
-                label="Email"
-                type="email"
-                icon={Mail}
-                value={form.email}
-                onChange={update("email")}
-                error={errors.email}
-                autoComplete="email"
-                placeholder="you@example.com"
-                required
-              />
+              </div>
 
               {isRegister && asOwner ? (
                 <Input
@@ -337,7 +375,7 @@ export default function Auth() {
               </Button>
             </motion.form>
 
-            <motion.p variants={variants(fadeUp)} className="mt-5 text-center text-sm text-ink-muted">
+            <motion.p variants={variants(fadeUp)} className="mt-4 text-center text-sm text-ink-muted">
               {isRegister ? "Already have an account?" : "New to LocalFinder?"}{" "}
               <button
                 type="button"
@@ -348,7 +386,7 @@ export default function Auth() {
               </button>
             </motion.p>
 
-            <motion.p variants={variants(fadeUp)} className="mt-6 text-center text-xs text-ink-faint">
+            <motion.p variants={variants(fadeUp)} className="mt-3 text-center text-2xs leading-relaxed text-ink-faint">
               By continuing you agree that reviews you post are your own and may be moderated.{" "}
               <Link to="/contact" className="underline underline-offset-2 hover:text-ink-muted">
                 Questions?
@@ -364,7 +402,7 @@ export default function Auth() {
             <div className="absolute -right-10 bottom-10 h-72 w-72 rounded-full bg-ai-500/20 blur-3xl" />
           </div>
 
-          <div className="relative flex h-full flex-col justify-center px-14">
+          <div className="relative flex h-full flex-col justify-center overflow-hidden px-14 py-10">
             {/* `key` restarts the scene when the intent changes, so the
                 artwork animates in rather than swapping silently. */}
             <AnimatePresence mode="wait">
@@ -375,8 +413,13 @@ export default function Auth() {
                 animate="visible"
                 exit={reduce ? undefined : { opacity: 0, transition: { duration: 0.15 } }}
               >
-                <motion.div variants={variants(scaleIn)} className="mb-8 max-w-md">
-                  <AuthScene variant={panel.scene} />
+                {/* Capped by viewport height so the panel's text is never
+                    pushed below the fold on a short window. */}
+                <motion.div
+                  variants={variants(scaleIn)}
+                  className="mb-5 max-h-[26vh] max-w-md [&>div>svg]:h-full"
+                >
+                  <AuthScene variant={panel.scene} className="h-[26vh] max-h-56" />
                 </motion.div>
 
                 <motion.span
@@ -389,12 +432,12 @@ export default function Auth() {
 
                 <motion.h2
                   variants={variants(fadeUp)}
-                  className="mt-6 max-w-sm font-display text-3xl font-extrabold leading-tight text-white"
+                  className="mt-5 max-w-sm font-display text-2xl font-extrabold leading-tight text-white xl:text-3xl"
                 >
                   {panel.heading}
                 </motion.h2>
 
-                <motion.ul variants={variants(staggerContainer(0.06))} className="mt-8 space-y-4">
+                <motion.ul variants={variants(staggerContainer(0.06))} className="mt-6 space-y-3">
                   {panel.highlights.map((item) => (
                     <motion.li
                       key={item}
@@ -411,7 +454,7 @@ export default function Auth() {
               </motion.div>
             </AnimatePresence>
 
-            <div className="mt-10 flex items-center gap-2 text-xs text-slate-400">
+            <div className="mt-7 flex items-center gap-2 text-xs text-slate-400">
               <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
               Place data &copy; OpenStreetMap contributors
             </div>

@@ -193,3 +193,39 @@
 .animate-fadeUp {
   @apply animate-fade-up;
 }
+
+/* A highlight that sweeps across the accent line of the hero headline.
+   `background-clip: text` paints the gradient into the glyphs, so the
+   animation is one compositor-friendly background-position shift rather
+   than anything that could reflow the heading. Honours reduced motion via
+   the global rule above, which clamps animation-duration. */
+/* Dark ink as the base so the headline reads as a heading, with a bright
+   band of brand colour travelling through it. Keeping the base dark - not
+   blue - is what stops the line looking like a link. */
+.lf-sheen {
+  background-image: linear-gradient(
+    100deg,
+    #0f172a 0%,
+    #0f172a 30%,
+    #1d4ed8 42%,
+    #3b82f6 48%,
+    #8b5cf6 54%,
+    #1d4ed8 60%,
+    #0f172a 72%,
+    #0f172a 100%
+  );
+  background-size: 280% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: lf-sheen-sweep 6s linear infinite;
+}
+
+@keyframes lf-sheen-sweep {
+  0% {
+    background-position: 160% 0;
+  }
+  100% {
+    background-position: -60% 0;
+  }
+}
