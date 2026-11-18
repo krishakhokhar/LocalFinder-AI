@@ -13,7 +13,8 @@
     "test": "node --test tests/*.test.js",
     "seed:categories": "node scripts/seedCategories.js",
     "create:admin": "node scripts/createAdmin.js",
-    "ensure:indexes": "node scripts/ensureIndexes.js"
+    "ensure:indexes": "node scripts/ensureIndexes.js",
+    "test:roles": "node tests/roles.e2e.mjs"
   },
   "author": "",
   "license": "ISC",

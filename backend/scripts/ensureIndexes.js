@@ -1,5 +1,4 @@
-import dotenv from "dotenv";
-dotenv.config();
+import "../config/loadEnv.js"; // must stay the first import - see the file
 
 // Importing every model registers its schema so createIndexes() covers all.
 import "../models/User.js";

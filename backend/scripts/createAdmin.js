@@ -1,5 +1,4 @@
-import dotenv from "dotenv";
-dotenv.config();
+import "../config/loadEnv.js"; // must stay the first import - see the file
 
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
