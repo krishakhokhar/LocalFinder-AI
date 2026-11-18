@@ -21,7 +21,7 @@ import Modal from "../components/common/Modal";
 import ReviewsSection from "../components/reviews/ReviewsSection";
 import placesApi from "../services/placesApi";
 import useFavorites from "../hooks/useFavorites";
-import useGeolocation from "../hooks/useGeolocation";
+import useGeolocation, { isAccurateEnough } from "../hooks/useGeolocation";
 import useDebounce from "../hooks/useDebounce";
 import { BUILT_IN_CATEGORY_FALLBACK } from "../config/categories";
 
@@ -113,6 +113,7 @@ export default function ServicesPage({ selectedPosition, onLocationChange }) {
   const requestId = useRef(0);
   const abortRef = useRef(null);
   const lastWrittenUrl = useRef(null);
+  const lastCategory = useRef(null);
 
   // Don't leave a request running after the page is gone.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -174,6 +175,21 @@ export default function ServicesPage({ selectedPosition, onLocationChange }) {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+
+      // Changing category invalidates the previous results outright.
+      //
+      // Without this the old list stays on screen for however long the new
+      // search takes - and because the skeletons only appear when the list
+      // is already empty, the user watches Health markers sitting under a
+      // "Shopping & Essentials" filter for several seconds. Narrowing by
+      // radius or rating is different: there the old list is still a
+      // reasonable preview, so it is left in place to avoid a flash.
+      if (lastCategory.current !== null && lastCategory.current !== activeFilters.category) {
+        setResults([]);
+        setSelectedId(null);
+        setMeta((current) => ({ ...current, total: 0, pages: 1 }));
+      }
+      lastCategory.current = activeFilters.category;
 
       setLoading(true);
       setError("");
@@ -548,6 +564,33 @@ export default function ServicesPage({ selectedPosition, onLocationChange }) {
                   message={`${locationError} Your results will stay empty until a location is set.`}
                   onRetry={findMe}
                 />
+              ) : null}
+
+              {/* A network-derived fix can be tens of kilometres out, which
+                  makes a 1 km search meaningless. Say so, and point at the
+                  manual alternative rather than searching the wrong area. */}
+              {hasOrigin && location && !isAccurateEnough(location) &&
+              origin.lat === location.lat && origin.lng === location.lng ? (
+                <div className="flex items-start gap-3 rounded-card border border-warning-100 bg-warning-50 p-3.5">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning-600" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-warning-700">
+                      Your location is only accurate to ±{(location.accuracy / 1000).toFixed(1)} km
+                    </p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-warning-700/90">
+                      That usually means the browser used your network rather than GPS. Results may be
+                      centred on the wrong area — drag the map to where you are and press “Search this
+                      area”, or retry on a device with GPS.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={findMe}
+                      className="mt-1.5 text-xs font-semibold text-warning-700 underline underline-offset-2"
+                    >
+                      Try for a better fix
+                    </button>
+                  </div>
+                </div>
               ) : null}
 
               {/* The actual measured coordinates, so it is always visible

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { ArrowUpRight } from "lucide-react";
 import SectionHeading from "../common/SectionHeading";
 import { RevealGroup, RevealItem } from "../common/Reveal";

@@ -3,6 +3,25 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const STORAGE_KEY = "localfinder:last-location";
 const MAX_AGE_MS = 30 * 60 * 1000;
 
+/**
+ * Above this, a "current location" is not useful for walking-distance
+ * discovery and must not be presented as if it were.
+ *
+ * A device with no GPS falls back to network positioning, which locates the
+ * ISP's exit point rather than the person - readings of tens of kilometres
+ * are normal on a desktop. At ±50 km a 1 km radius search is meaningless,
+ * so the app says so and offers to set the location by hand instead of
+ * quietly searching the wrong neighbourhood.
+ */
+export const POOR_ACCURACY_M = 1000;
+
+export function isAccurateEnough(location) {
+  if (!location) return false;
+  // Unknown accuracy is not treated as bad; the browser simply did not say.
+  if (typeof location.accuracy !== "number") return true;
+  return location.accuracy <= POOR_ACCURACY_M;
+}
+
 const debug = (...args) => {
   if (import.meta.env.DEV) console.debug("[geo]", ...args);
 };

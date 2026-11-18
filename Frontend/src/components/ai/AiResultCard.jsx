@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { Check, MapPin, Navigation, Phone, Star } from "lucide-react";
 import useMotionSafe from "../../hooks/useMotionSafe";
 import { categoryConfig, displayType } from "../../utils/categories";

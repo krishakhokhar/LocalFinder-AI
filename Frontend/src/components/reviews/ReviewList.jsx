@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { BadgeCheck, Flag, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import RatingStars from "./RatingStars";
 import Avatar from "../common/Avatar";

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import useMotionSafe from "../../hooks/useMotionSafe";
 import { CHART, SERIES_COLORS } from "./chartTokens";
 

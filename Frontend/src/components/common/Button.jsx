@@ -1,6 +1,6 @@
 import { forwardRef } from "react";
 import { Link } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { Loader2 } from "lucide-react";
 import useMotionSafe from "../../hooks/useMotionSafe";
 import { buttonTap } from "../../utils/motion";

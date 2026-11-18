@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "motion/react";
 import { CalendarDays, CheckCircle2, Clock, Info } from "lucide-react";
 import Modal from "../common/Modal";
 import Button from "../common/Button";
